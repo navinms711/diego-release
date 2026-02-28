@@ -2,6 +2,7 @@ package auctionrunner_test
 
 import (
 	"errors"
+	"time"
 
 	"code.cloudfoundry.org/auction/auctionrunner"
 	"code.cloudfoundry.org/bbs/models"
@@ -44,17 +45,17 @@ var _ = Describe("Cell", func() {
 			smallInstance := BuildLRP("pg-small", "domain", 0, linuxRootFSURL, 10, 10, 10, []string{})
 
 			By("factoring in the amount of memory taken up by the instance")
-			bigScore, err := emptyCell.ScoreForLRP(bigInstance, 0.0, 0.0)
+			bigScore, err := emptyCell.ScoreForLRP(bigInstance, 0.0, 0.0, 0.0, false)
 			Expect(err).NotTo(HaveOccurred())
-			smallScore, err := emptyCell.ScoreForLRP(smallInstance, 0.0, 0.0)
+			smallScore, err := emptyCell.ScoreForLRP(smallInstance, 0.0, 0.0, 0.0, false)
 			Expect(err).NotTo(HaveOccurred())
 
 			Expect(smallScore).To(BeNumerically("<", bigScore))
 
 			By("factoring in the relative emptiness of Cells")
-			emptyScore, err := emptyCell.ScoreForLRP(smallInstance, 0.0, 0.0)
+			emptyScore, err := emptyCell.ScoreForLRP(smallInstance, 0.0, 0.0, 0.0, false)
 			Expect(err).NotTo(HaveOccurred())
-			score, err := cell.ScoreForLRP(smallInstance, 0.0, 0.0)
+			score, err := cell.ScoreForLRP(smallInstance, 0.0, 0.0, 0.0, false)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(emptyScore).To(BeNumerically("<", score))
 		})
@@ -82,7 +83,7 @@ var _ = Describe("Cell", func() {
 				})
 
 				It("succeeds placing the lrp", func() {
-					score, err := proxiedCell.ScoreForLRP(lrp, 0.0, 0.0)
+					score, err := proxiedCell.ScoreForLRP(lrp, 0.0, 0.0, 0.0, false)
 					Expect(err).NotTo(HaveOccurred())
 					Expect(score).To(BeNumerically(">", 0))
 				})
@@ -96,7 +97,7 @@ var _ = Describe("Cell", func() {
 				})
 
 				It("errors with memory placement error", func() {
-					score, err := proxiedCell.ScoreForLRP(lrp, 0.0, 0.0)
+					score, err := proxiedCell.ScoreForLRP(lrp, 0.0, 0.0, 0.0, false)
 					Expect(err).To(HaveOccurred())
 					Expect(err.Error()).To(Equal("insufficient resources: memory"))
 					Expect(score).To(BeZero())
@@ -109,17 +110,17 @@ var _ = Describe("Cell", func() {
 			smallInstance := BuildLRP("pg-small", "domain", 0, linuxRootFSURL, 10, 10, 10, []string{})
 
 			By("factoring in the amount of memory taken up by the instance")
-			bigScore, err := emptyCell.ScoreForLRP(bigInstance, 0.0, 0.0)
+			bigScore, err := emptyCell.ScoreForLRP(bigInstance, 0.0, 0.0, 0.0, false)
 			Expect(err).NotTo(HaveOccurred())
-			smallScore, err := emptyCell.ScoreForLRP(smallInstance, 0.0, 0.0)
+			smallScore, err := emptyCell.ScoreForLRP(smallInstance, 0.0, 0.0, 0.0, false)
 			Expect(err).NotTo(HaveOccurred())
 
 			Expect(smallScore).To(BeNumerically("<", bigScore))
 
 			By("factoring in the relative emptiness of Cells")
-			emptyScore, err := emptyCell.ScoreForLRP(smallInstance, 0.0, 0.0)
+			emptyScore, err := emptyCell.ScoreForLRP(smallInstance, 0.0, 0.0, 0.0, false)
 			Expect(err).NotTo(HaveOccurred())
-			score, err := cell.ScoreForLRP(smallInstance, 0.0, 0.0)
+			score, err := cell.ScoreForLRP(smallInstance, 0.0, 0.0, 0.0, false)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(emptyScore).To(BeNumerically("<", score))
 		})
@@ -133,9 +134,9 @@ var _ = Describe("Cell", func() {
 			smallState := BuildCellState("cellID", 0, "the-zone", 100, 200, 20, false, 0, linuxOnlyRootFSProviders, nil, []string{}, []string{}, []string{}, 0)
 			smallCell := auctionrunner.NewCell(logger, "small-cell", client, smallState)
 
-			bigScore, err := bigCell.ScoreForLRP(instance, 0.0, 0.0)
+			bigScore, err := bigCell.ScoreForLRP(instance, 0.0, 0.0, 0.0, false)
 			Expect(err).NotTo(HaveOccurred())
-			smallScore, err := smallCell.ScoreForLRP(instance, 0.0, 0.0)
+			smallScore, err := smallCell.ScoreForLRP(instance, 0.0, 0.0, 0.0, false)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(bigScore).To(BeNumerically("<", smallScore), "prefer Cells with more resources")
 		})
@@ -160,9 +161,9 @@ var _ = Describe("Cell", func() {
 			It("factors in Bin Pack First Fit algorithm when a weight is provided", func() {
 				binPackFirstFitWeight := 0.2
 
-				cellZeroScore, err := cellZero.ScoreForLRP(instance, 0.0, binPackFirstFitWeight)
+				cellZeroScore, err := cellZero.ScoreForLRP(instance, 0.0, binPackFirstFitWeight, 0.0, false)
 				Expect(err).NotTo(HaveOccurred())
-				cellOneScore, err := cellOne.ScoreForLRP(instance, 0.0, binPackFirstFitWeight)
+				cellOneScore, err := cellOne.ScoreForLRP(instance, 0.0, binPackFirstFitWeight, 0.0, false)
 				Expect(err).NotTo(HaveOccurred())
 
 				Expect(cellZeroScore).To(BeNumerically("<", cellOneScore), "prefer Cells that have a lower index number")
@@ -172,9 +173,9 @@ var _ = Describe("Cell", func() {
 				instance = BuildLRP("pg-1", "domain", 1, linuxRootFSURL, 20, 20, 10, []string{})
 				binPackFirstFitWeight := 0.2
 
-				cellZeroScore, err := cellZero.ScoreForLRP(instance, 0.0, binPackFirstFitWeight)
+				cellZeroScore, err := cellZero.ScoreForLRP(instance, 0.0, binPackFirstFitWeight, 0.0, false)
 				Expect(err).NotTo(HaveOccurred())
-				cellOneScore, err := cellOne.ScoreForLRP(instance, 0.0, binPackFirstFitWeight)
+				cellOneScore, err := cellOne.ScoreForLRP(instance, 0.0, binPackFirstFitWeight, 0.0, false)
 				Expect(err).NotTo(HaveOccurred())
 
 				Expect(cellZeroScore).To(BeNumerically(">", cellOneScore), "prefer Cells that do not have an instance of self already running")
@@ -183,9 +184,9 @@ var _ = Describe("Cell", func() {
 			It("ignores Bin Pack First Fit algorithm when a weight is not provided", func() {
 				binPackFirstFitWeight := 0.0
 
-				cellZeroScore, err := cellZero.ScoreForLRP(instance, 0.0, binPackFirstFitWeight)
+				cellZeroScore, err := cellZero.ScoreForLRP(instance, 0.0, binPackFirstFitWeight, 0.0, false)
 				Expect(err).NotTo(HaveOccurred())
-				cellOneScore, err := cellOne.ScoreForLRP(instance, 0.0, binPackFirstFitWeight)
+				cellOneScore, err := cellOne.ScoreForLRP(instance, 0.0, binPackFirstFitWeight, 0.0, false)
 				Expect(err).NotTo(HaveOccurred())
 
 				Expect(cellZeroScore).To(BeNumerically("==", cellOneScore), "ignore Bin Pack First Fit algorithm")
@@ -195,11 +196,11 @@ var _ = Describe("Cell", func() {
 				binPackFirstFitWeight := 1.0
 
 				cellZero.Index = 0
-				cellZeroScore, err := cellZero.ScoreForLRP(instance, 0.0, binPackFirstFitWeight)
+				cellZeroScore, err := cellZero.ScoreForLRP(instance, 0.0, binPackFirstFitWeight, 0.0, false)
 				Expect(err).NotTo(HaveOccurred())
 
 				cellOne.Index = 0
-				cellOneScore, err := cellOne.ScoreForLRP(instance, 0.0, binPackFirstFitWeight)
+				cellOneScore, err := cellOne.ScoreForLRP(instance, 0.0, binPackFirstFitWeight, 0.0, false)
 				Expect(err).NotTo(HaveOccurred())
 
 				Expect(cellZeroScore).To(BeNumerically("==", cellOneScore), "has a separate normalised cell ordering for each zone")
@@ -254,9 +255,9 @@ var _ = Describe("Cell", func() {
 			It("factors in starting containers when a weight is provided", func() {
 				startingContainerWeight := 0.25
 
-				busyScore, err := busyCell.ScoreForLRP(instance, startingContainerWeight, 0.0)
+				busyScore, err := busyCell.ScoreForLRP(instance, startingContainerWeight, 0.0, 0.0, false)
 				Expect(err).NotTo(HaveOccurred())
-				boredScore, err := boredCell.ScoreForLRP(instance, startingContainerWeight, 0.0)
+				boredScore, err := boredCell.ScoreForLRP(instance, startingContainerWeight, 0.0, 0.0, false)
 				Expect(err).NotTo(HaveOccurred())
 
 				Expect(busyScore).To(BeNumerically(">", boredScore), "prefer Cells that have less starting containers")
@@ -278,7 +279,7 @@ var _ = Describe("Cell", func() {
 					0,
 				)
 				smallerWeightCell := auctionrunner.NewCell(logger, "busy-cell", client, smallerWeightState)
-				smallerWeightScore, err := smallerWeightCell.ScoreForLRP(instance, startingContainerWeight-0.1, 0.0)
+				smallerWeightScore, err := smallerWeightCell.ScoreForLRP(instance, startingContainerWeight-0.1, 0.0, 0.0, false)
 				Expect(err).NotTo(HaveOccurred())
 
 				Expect(busyScore).To(BeNumerically(">", smallerWeightScore), "the number of starting containers is weighted")
@@ -288,9 +289,9 @@ var _ = Describe("Cell", func() {
 				instance = BuildLRP("HA", "domain", 1, linuxRootFSURL, 20, 20, 10, []string{})
 				startingContainerWeight := 0.25
 
-				busyScore, err := busyCell.ScoreForLRP(instance, startingContainerWeight, 0.0)
+				busyScore, err := busyCell.ScoreForLRP(instance, startingContainerWeight, 0.0, 0.0, false)
 				Expect(err).NotTo(HaveOccurred())
-				boredScore, err := boredCell.ScoreForLRP(instance, startingContainerWeight, 0.0)
+				boredScore, err := boredCell.ScoreForLRP(instance, startingContainerWeight, 0.0, 0.0, false)
 				Expect(err).NotTo(HaveOccurred())
 
 				Expect(busyScore).To(BeNumerically("<", boredScore), "prefer Cells that do not have an instance of self already running")
@@ -299,9 +300,9 @@ var _ = Describe("Cell", func() {
 			It("ignores starting containers when a weight is not provided", func() {
 				startingContainerWeight := 0.0
 
-				busyScore, err := busyCell.ScoreForLRP(instance, startingContainerWeight, 0.0)
+				busyScore, err := busyCell.ScoreForLRP(instance, startingContainerWeight, 0.0, 0.0, false)
 				Expect(err).NotTo(HaveOccurred())
-				boredScore, err := boredCell.ScoreForLRP(instance, startingContainerWeight, 0.0)
+				boredScore, err := boredCell.ScoreForLRP(instance, startingContainerWeight, 0.0, 0.0, false)
 				Expect(err).NotTo(HaveOccurred())
 
 				Expect(busyScore).To(BeNumerically("==", boredScore), "ignore how many starting Containers a cell has")
@@ -313,11 +314,11 @@ var _ = Describe("Cell", func() {
 			instanceWithOneMatch := BuildLRP("pg-2", "domain", 1, linuxRootFSURL, 10, 10, 10, []string{})
 			instanceWithNoMatches := BuildLRP("pg-new", "domain", 0, linuxRootFSURL, 10, 10, 10, []string{})
 
-			twoMatchesScore, err := cell.ScoreForLRP(instanceWithTwoMatches, 0.0, 0.0)
+			twoMatchesScore, err := cell.ScoreForLRP(instanceWithTwoMatches, 0.0, 0.0, 0.0, false)
 			Expect(err).NotTo(HaveOccurred())
-			oneMatchesScore, err := cell.ScoreForLRP(instanceWithOneMatch, 0.0, 0.0)
+			oneMatchesScore, err := cell.ScoreForLRP(instanceWithOneMatch, 0.0, 0.0, 0.0, false)
 			Expect(err).NotTo(HaveOccurred())
-			noMatchesScore, err := cell.ScoreForLRP(instanceWithNoMatches, 0.0, 0.0)
+			noMatchesScore, err := cell.ScoreForLRP(instanceWithNoMatches, 0.0, 0.0, 0.0, false)
 			Expect(err).NotTo(HaveOccurred())
 
 			Expect(noMatchesScore).To(BeNumerically("<", oneMatchesScore))
@@ -328,7 +329,7 @@ var _ = Describe("Cell", func() {
 			Context("because of memory constraints", func() {
 				It("should error", func() {
 					massiveMemoryInstance := BuildLRP("pg-new", "domain", 0, linuxRootFSURL, 10000, 10, 1024, []string{})
-					score, err := cell.ScoreForLRP(massiveMemoryInstance, 0.0, 0.0)
+					score, err := cell.ScoreForLRP(massiveMemoryInstance, 0.0, 0.0, 0.0, false)
 					Expect(score).To(BeZero())
 					Expect(err).To(MatchError("insufficient resources: memory"))
 				})
@@ -337,7 +338,7 @@ var _ = Describe("Cell", func() {
 			Context("because of disk constraints", func() {
 				It("should error", func() {
 					massiveDiskInstance := BuildLRP("pg-new", "domain", 0, linuxRootFSURL, 10, 10000, 1024, []string{})
-					score, err := cell.ScoreForLRP(massiveDiskInstance, 0.0, 0.0)
+					score, err := cell.ScoreForLRP(massiveDiskInstance, 0.0, 0.0, 0.0, false)
 					Expect(score).To(BeZero())
 					Expect(err).To(MatchError("insufficient resources: disk"))
 				})
@@ -348,10 +349,100 @@ var _ = Describe("Cell", func() {
 					instance := BuildLRP("pg-new", "domain", 0, linuxRootFSURL, 10, 10, 10, []string{})
 					zeroState := BuildCellState("cellID", 0, "the-zone", 100, 100, 0, false, 0, linuxOnlyRootFSProviders, nil, []string{}, []string{}, []string{}, 0)
 					zeroCell := auctionrunner.NewCell(logger, "zero-cell", client, zeroState)
-					score, err := zeroCell.ScoreForLRP(instance, 0.0, 0.0)
+					score, err := zeroCell.ScoreForLRP(instance, 0.0, 0.0, 0.0, false)
 					Expect(score).To(BeZero())
 					Expect(err).To(MatchError("insufficient resources: containers"))
 				})
+			})
+		})
+
+		Context("freshness weight (Top-N bonus for cells marked as fresh)", func() {
+			It("applies full bonus to cells marked as fresh", func() {
+				instance := BuildLRP("pg-new", "domain", 0, linuxRootFSURL, 10, 10, 10, []string{})
+				freshnessWeight := 100.0
+
+				// Create a cell (startTime doesn't matter for direct ScoreForLRP call,
+				// what matters is the isFreshCell flag passed by the Scheduler)
+				freshCellState := BuildCellStateWithStartTime(
+					"cellID", 0, "the-zone", 100, 200, 50, false, 0, linuxOnlyRootFSProviders,
+					nil, []string{}, []string{}, []string{}, 0, time.Now(),
+				)
+				freshCell := auctionrunner.NewCell(logger, "fresh-cell", client, freshCellState)
+
+				freshScore, err := freshCell.ScoreForLRP(instance, 0.0, 0.0, freshnessWeight, true)
+				Expect(err).NotTo(HaveOccurred())
+
+				By("cells marked as fresh should get a negative score (bonus)")
+				Expect(freshScore).To(BeNumerically("<", 0))
+				Expect(freshScore).To(BeNumerically("~", -freshnessWeight, 1.0))
+			})
+
+			It("applies no bonus to cells not marked as fresh", func() {
+				instance := BuildLRP("pg-new", "domain", 0, linuxRootFSURL, 10, 10, 10, []string{})
+				freshnessWeight := 100.0
+
+				// Create a cell
+				oldCellState := BuildCellStateWithStartTime(
+					"cellID", 0, "the-zone", 100, 200, 50, false, 0, linuxOnlyRootFSProviders,
+					nil, []string{}, []string{}, []string{}, 0, time.Now().Add(-10*time.Minute),
+				)
+				oldCell := auctionrunner.NewCell(logger, "old-cell", client, oldCellState)
+
+				scoreNotFresh, err := oldCell.ScoreForLRP(instance, 0.0, 0.0, freshnessWeight, false)
+				Expect(err).NotTo(HaveOccurred())
+
+				scoreNoWeight, err := oldCell.ScoreForLRP(instance, 0.0, 0.0, 0.0, false)
+				Expect(err).NotTo(HaveOccurred())
+
+				By("cells not marked as fresh should get no bonus")
+				Expect(scoreNotFresh).To(Equal(scoreNoWeight))
+			})
+
+			It("does not apply bonus when freshnessWeight is 0 even if cell is marked fresh", func() {
+				instance := BuildLRP("pg-new", "domain", 0, linuxRootFSURL, 10, 10, 10, []string{})
+
+				freshCellState := BuildCellStateWithStartTime(
+					"cellID", 0, "the-zone", 100, 200, 50, false, 0, linuxOnlyRootFSProviders,
+					nil, []string{}, []string{}, []string{}, 0, time.Now(),
+				)
+				freshCell := auctionrunner.NewCell(logger, "fresh-cell", client, freshCellState)
+
+				scoreWithFreshFlag, err := freshCell.ScoreForLRP(instance, 0.0, 0.0, 0.0, true)
+				Expect(err).NotTo(HaveOccurred())
+
+				scoreWithoutFreshFlag, err := freshCell.ScoreForLRP(instance, 0.0, 0.0, 0.0, false)
+				Expect(err).NotTo(HaveOccurred())
+
+				Expect(scoreWithFreshFlag).To(Equal(scoreWithoutFreshFlag))
+			})
+
+			It("prefers fresh cells over non-fresh cells even when fresh cell has more LRPs", func() {
+				instance := BuildLRP("pg-new", "domain", 0, linuxRootFSURL, 10, 10, 10, []string{})
+				freshnessWeight := 200.0
+
+				// Empty but not-fresh cell
+				oldEmptyCellState := BuildCellStateWithStartTime(
+					"cellID", 0, "the-zone", 100, 200, 50, false, 0, linuxOnlyRootFSProviders,
+					nil, []string{}, []string{}, []string{}, 0, time.Now().Add(-10*time.Minute),
+				)
+				oldEmptyCell := auctionrunner.NewCell(logger, "old-empty-cell", client, oldEmptyCellState)
+
+				// Fresh cell with some LRPs
+				freshCellWithLRPs := BuildCellStateWithStartTime(
+					"cellID", 0, "the-zone", 100, 200, 50, false, 0, linuxOnlyRootFSProviders,
+					[]rep.LRP{*BuildLRP("pg-1", "domain", 0, linuxRootFSURL, 10, 10, 10, []string{})},
+					[]string{}, []string{}, []string{}, 0, time.Now(),
+				)
+				freshBusyCell := auctionrunner.NewCell(logger, "fresh-busy-cell", client, freshCellWithLRPs)
+
+				oldEmptyScore, err := oldEmptyCell.ScoreForLRP(instance, 0.0, 0.0, freshnessWeight, false)
+				Expect(err).NotTo(HaveOccurred())
+
+				freshBusyScore, err := freshBusyCell.ScoreForLRP(instance, 0.0, 0.0, freshnessWeight, true)
+				Expect(err).NotTo(HaveOccurred())
+
+				By("fresh cells should be preferred over non-fresh cells due to freshness bonus")
+				Expect(freshBusyScore).To(BeNumerically("<", oldEmptyScore))
 			})
 		})
 	})
@@ -505,12 +596,12 @@ var _ = Describe("Cell", func() {
 				instance := BuildLRP("pg-test", "domain", 0, linuxRootFSURL, 10, 10, 10, []string{})
 				instanceToAdd := BuildLRP("pg-new", "domain", 0, linuxRootFSURL, 10, 10, 10, []string{})
 
-				initialScore, err := cell.ScoreForLRP(instance, 0.0, 0.0)
+				initialScore, err := cell.ScoreForLRP(instance, 0.0, 0.0, 0.0, false)
 				Expect(err).NotTo(HaveOccurred())
 
 				Expect(cell.ReserveLRP(instanceToAdd)).To(Succeed())
 
-				subsequentScore, err := cell.ScoreForLRP(instance, 0.0, 0.0)
+				subsequentScore, err := cell.ScoreForLRP(instance, 0.0, 0.0, 0.0, false)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(initialScore).To(BeNumerically("<", subsequentScore), "the score should have gotten worse")
 			})
@@ -520,20 +611,20 @@ var _ = Describe("Cell", func() {
 				instanceWithMatchingProcessGuid := BuildLRP("pg-new", "domain", 1, linuxRootFSURL, 10, 10, 10, []string{})
 				instanceToAdd := BuildLRP("pg-new", "domain", 0, linuxRootFSURL, 10, 10, 10, []string{})
 
-				initialScore, err := cell.ScoreForLRP(instance, 0.0, 0.0)
+				initialScore, err := cell.ScoreForLRP(instance, 0.0, 0.0, 0.0, false)
 				Expect(err).NotTo(HaveOccurred())
 
-				initialScoreForInstanceWithMatchingProcessGuid, err := cell.ScoreForLRP(instanceWithMatchingProcessGuid, 0.0, 0.0)
+				initialScoreForInstanceWithMatchingProcessGuid, err := cell.ScoreForLRP(instanceWithMatchingProcessGuid, 0.0, 0.0, 0.0, false)
 				Expect(err).NotTo(HaveOccurred())
 
 				Expect(initialScore).To(BeNumerically("==", initialScoreForInstanceWithMatchingProcessGuid))
 
 				Expect(cell.ReserveLRP(instanceToAdd)).To(Succeed())
 
-				subsequentScore, err := cell.ScoreForLRP(instance, 0.0, 0.0)
+				subsequentScore, err := cell.ScoreForLRP(instance, 0.0, 0.0, 0.0, false)
 				Expect(err).NotTo(HaveOccurred())
 
-				subsequentScoreForInstanceWithMatchingProcessGuid, err := cell.ScoreForLRP(instanceWithMatchingProcessGuid, 0.0, 0.0)
+				subsequentScoreForInstanceWithMatchingProcessGuid, err := cell.ScoreForLRP(instanceWithMatchingProcessGuid, 0.0, 0.0, 0.0, false)
 				Expect(err).NotTo(HaveOccurred())
 
 				Expect(initialScore).To(BeNumerically("<", subsequentScore), "the score should have gotten worse")

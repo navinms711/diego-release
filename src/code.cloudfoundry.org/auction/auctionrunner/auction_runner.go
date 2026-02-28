@@ -24,6 +24,8 @@ type auctionRunner struct {
 	binPackFirstFitWeight         float64
 	startingContainerWeight       float64
 	startingContainerCountMaximum int
+	freshLRPsPerCell              int
+	freshnessWeight               float64
 }
 
 func New(
@@ -35,6 +37,8 @@ func New(
 	binPackFirstFitWeight float64,
 	startingContainerWeight float64,
 	startingContainerCountMaximum int,
+	freshLRPsPerCell int,
+	freshnessWeight float64,
 ) *auctionRunner {
 	return &auctionRunner{
 		logger:                        logger,
@@ -46,6 +50,8 @@ func New(
 		binPackFirstFitWeight:         binPackFirstFitWeight,
 		startingContainerWeight:       startingContainerWeight,
 		startingContainerCountMaximum: startingContainerCountMaximum,
+		freshLRPsPerCell:              freshLRPsPerCell,
+		freshnessWeight:               freshnessWeight,
 	}
 }
 
@@ -75,7 +81,7 @@ func (a *auctionRunner) Run(signals <-chan os.Signal, ready chan<- struct{}) err
 
 			logger.Info("fetching-zone-state")
 			fetchStatesStartTime := time.Now()
-			zones := FetchStateAndBuildZones(logger, a.workPool, clients, a.metricEmitter, a.binPackFirstFitWeight)
+			zones, evacuatingCount := FetchStateAndBuildZones(logger, a.workPool, clients, a.metricEmitter, a.binPackFirstFitWeight)
 			fetchStateDuration := time.Since(fetchStatesStartTime)
 			err = a.metricEmitter.FetchStatesCompleted(fetchStateDuration)
 			if err != nil {
@@ -90,6 +96,7 @@ func (a *auctionRunner) Run(signals <-chan os.Signal, ready chan<- struct{}) err
 			logger.Info("fetched-zone-state", lager.Data{
 				"cell-state-count":    cellCount,
 				"num-failed-requests": len(clients) - cellCount,
+				"evacuating-count":    evacuatingCount,
 				"duration":            fetchStateDuration.String(),
 			})
 
@@ -110,7 +117,7 @@ func (a *auctionRunner) Run(signals <-chan os.Signal, ready chan<- struct{}) err
 				Tasks: taskAuctions,
 			}
 
-			scheduler := NewScheduler(a.workPool, zones, a.clock, logger, a.binPackFirstFitWeight, a.startingContainerWeight, a.startingContainerCountMaximum)
+			scheduler := NewScheduler(a.workPool, zones, a.clock, logger, a.binPackFirstFitWeight, a.startingContainerWeight, a.startingContainerCountMaximum, a.freshLRPsPerCell, a.freshnessWeight, evacuatingCount)
 			auctionResults := scheduler.Schedule(auctionRequest)
 			logger.Info("scheduled", lager.Data{
 				"successful-lrp-start-auctions": len(auctionResults.SuccessfulLRPs),

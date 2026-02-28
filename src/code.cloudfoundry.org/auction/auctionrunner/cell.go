@@ -48,7 +48,7 @@ func (c *Cell) State() rep.CellState {
 	return c.state
 }
 
-func (c *Cell) ScoreForLRP(lrp *rep.LRP, startingContainerWeight, binPackFirstFitWeight float64) (float64, error) {
+func (c *Cell) ScoreForLRP(lrp *rep.LRP, startingContainerWeight, binPackFirstFitWeight, freshnessWeight float64, isFreshCell bool) (float64, error) {
 	proxiedLRP := rep.Resource{
 		MemoryMB: lrp.Resource.MemoryMB + int32(c.state.ProxyMemoryAllocationMB),
 		DiskMB:   lrp.Resource.DiskMB,
@@ -73,15 +73,31 @@ func (c *Cell) ScoreForLRP(lrp *rep.LRP, startingContainerWeight, binPackFirstFi
 
 	indexScore := float64(c.Index) * binPackFirstFitWeight
 
+	// Freshness bonus: prefer cells that are among the N most recently started,
+	// where N = number of currently evacuating cells. This ensures LRPs from
+	// evacuating cells are directed to the most recently upgraded cells
+	// (typically from the previous BOSH upgrade batch).
+	//
+	// Unlike a time-window approach, this Top-N method is immune to batch
+	// timing variations and self-disables when no upgrade is in progress.
+	freshnessBonus := 0.0
+	if isFreshCell && freshnessWeight > 0 {
+		freshnessBonus = -freshnessWeight
+	}
+
+	score := resourceScore + float64(localityScore) + indexScore + freshnessBonus
+
 	c.logger.Debug("score-for-lrp", lager.Data{
-		"cell-guid":      c.Guid,
-		"cell-index":     c.state.CellIndex,
-		"locality-score": localityScore,
-		"resource-score": resourceScore,
-		"index-score":    indexScore,
-		"score":          resourceScore + float64(localityScore) + indexScore,
+		"cell-guid":       c.Guid,
+		"cell-index":      c.state.CellIndex,
+		"locality-score":  localityScore,
+		"resource-score":  resourceScore,
+		"index-score":     indexScore,
+		"is-fresh-cell":   isFreshCell,
+		"freshness-bonus": freshnessBonus,
+		"score":           score,
 	})
-	return resourceScore + float64(localityScore) + indexScore, nil
+	return score, nil
 }
 
 func (c *Cell) ScoreForTask(task *rep.Task, startingContainerWeight float64) (float64, error) {

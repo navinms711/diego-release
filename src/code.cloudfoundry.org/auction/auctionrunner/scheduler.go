@@ -3,6 +3,7 @@ package auctionrunner
 import (
 	"sort"
 	"sync"
+	"time"
 
 	"code.cloudfoundry.org/auction/auctiontypes"
 	"code.cloudfoundry.org/rep"
@@ -54,6 +55,9 @@ type Scheduler struct {
 	binPackFirstFitWeight         float64
 	startingContainerWeight       float64
 	startingContainerCountMaximum int // <=0 means no limit
+	freshLRPsPerCell              int // <=0 means no limit on freshness bonus per cell
+	freshnessWeight               float64
+	freshCellBudget               map[string]int // remaining freshness bonus budget per cell GUID
 }
 
 func NewScheduler(
@@ -64,7 +68,17 @@ func NewScheduler(
 	binPackFirstFitWeight float64,
 	startingContainerWeight float64,
 	startingContainerCountMaximum int,
+	freshLRPsPerCell int,
+	freshnessWeight float64,
+	evacuatingCount int,
 ) *Scheduler {
+	// Compute the set of "fresh" cells: the top N most recently started cells,
+	// where N = evacuatingCount. Each fresh cell gets a limited freshness budget
+	// (freshLRPsPerCell) to prevent overwhelming it with too many container
+	// starts, which would slow drain times. If freshLRPsPerCell <= 0, the budget
+	// is unlimited (no cap on freshness bonus per cell).
+	freshCellBudget := computeFreshCellBudget(zones, evacuatingCount, freshLRPsPerCell)
+
 	return &Scheduler{
 		workPool:                      workPool,
 		zones:                         zones,
@@ -73,7 +87,65 @@ func NewScheduler(
 		binPackFirstFitWeight:         binPackFirstFitWeight,
 		startingContainerWeight:       startingContainerWeight,
 		startingContainerCountMaximum: startingContainerCountMaximum,
+		freshLRPsPerCell:              freshLRPsPerCell,
+		freshnessWeight:               freshnessWeight,
+		freshCellBudget:               freshCellBudget,
 	}
+}
+
+// computeFreshCellBudget returns a map of cell GUIDs to their remaining
+// freshness bonus budget. Only the N most recently started cells (where
+// N = evacuatingCount) are included. Each cell starts with a budget of
+// freshLRPsPerCell. If freshLRPsPerCell <= 0, a very large budget is used
+// (effectively unlimited). Once a cell's budget is exhausted the freshness
+// bonus is no longer applied, allowing natural resource-based spreading to
+// take over and preventing any single cell from being overwhelmed with
+// container starts.
+func computeFreshCellBudget(zones map[string]Zone, evacuatingCount int, freshLRPsPerCell int) map[string]int {
+	freshCellBudget := make(map[string]int)
+	if evacuatingCount <= 0 {
+		return freshCellBudget
+	}
+
+	// Collect all cells with their start times
+	type cellWithStartTime struct {
+		guid      string
+		startTime time.Time
+	}
+	var allCells []cellWithStartTime
+	for _, zone := range zones {
+		for _, cell := range zone {
+			state := cell.State()
+			if !state.StartTime.IsZero() {
+				allCells = append(allCells, cellWithStartTime{
+					guid:      cell.Guid,
+					startTime: state.StartTime,
+				})
+			}
+		}
+	}
+
+	// Sort by start time descending (newest first)
+	sort.Slice(allCells, func(i, j int) bool {
+		return allCells[i].startTime.After(allCells[j].startTime)
+	})
+
+	// Determine per-cell budget; <=0 means unlimited
+	budget := freshLRPsPerCell
+	if budget <= 0 {
+		budget = 1<<31 - 1 // effectively unlimited
+	}
+
+	// Take top N, each with the configured budget
+	n := evacuatingCount
+	if n > len(allCells) {
+		n = len(allCells)
+	}
+	for i := 0; i < n; i++ {
+		freshCellBudget[allCells[i].guid] = budget
+	}
+
+	return freshCellBudget
 }
 
 /*
@@ -304,7 +376,10 @@ func (s *Scheduler) scheduleLRPAuction(lrpAuction *auctiontypes.LRPAuction) (*au
 
 	for zoneIndex, lrpByZone := range sortedZones {
 		for _, cell := range lrpByZone.zone {
-			score, err := cell.ScoreForLRP(&lrpAuction.LRP, s.startingContainerWeight, s.binPackFirstFitWeight)
+			// A cell is "fresh" only if it still has remaining freshness budget
+			budget, isFresh := s.freshCellBudget[cell.Guid]
+			isFresh = isFresh && budget > 0
+			score, err := cell.ScoreForLRP(&lrpAuction.LRP, s.startingContainerWeight, s.binPackFirstFitWeight, s.freshnessWeight, isFresh)
 			if err != nil {
 				cellStates[cell.Guid] = NewCellResourceState(cell.State())
 				removeNonApplicableProblems(problems, err)
@@ -341,6 +416,13 @@ func (s *Scheduler) scheduleLRPAuction(lrpAuction *auctiontypes.LRPAuction) (*au
 		s.logger.Error("lrp-failed-to-reserve-cell", err, lager.Data{"cell-guid": winnerCell.Guid, "lrp-guid": lrpAuction.Identifier(), "lrp-instance-guid": lrpAuction.LRP.InstanceGUID, "lrp-placement-constraints": lrpAuction.LRP.PlacementConstraint, "lrp-resource": lrpAuction.LRP.Resource})
 		s.logger.Debug("cells-failing-score-for-lrp", lager.Data{"states": cellStates})
 		return nil, err
+	}
+
+	// Decrement the freshness budget for the winning cell. Once the budget
+	// reaches 0, the cell no longer receives the freshness bonus, allowing
+	// subsequent LRPs to spread via normal resource-based scoring.
+	if _, ok := s.freshCellBudget[winnerCell.Guid]; ok {
+		s.freshCellBudget[winnerCell.Guid]--
 	}
 
 	winningAuction := lrpAuction.Copy()

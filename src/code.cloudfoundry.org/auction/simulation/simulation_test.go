@@ -214,16 +214,18 @@ var _ = Describe("Auction", func() {
 				Context(fmt.Sprintf("with weight %f", w), func() {
 					JustBeforeEach(func() {
 						metricEmitterDelegate := NewAuctionMetricEmitterDelegate()
-						runner = auctionrunner.New(
-							logger,
-							runnerDelegate,
-							metricEmitterDelegate,
-							clock.NewClock(),
-							workPool,
-							weight,
-							0.5,
-							defaultMaxContainerStartCount,
-						)
+					runner = auctionrunner.New(
+						logger,
+						runnerDelegate,
+						metricEmitterDelegate,
+						clock.NewClock(),
+						workPool,
+						weight,
+						0.5,
+						defaultMaxContainerStartCount,
+						0,
+						0.0,
+					)
 						runnerProcess = ifrit.Invoke(runner)
 					})
 

@@ -13,10 +13,11 @@ import (
 
 const MinBinPackFirstFitWeight = 0.0
 
-func FetchStateAndBuildZones(logger lager.Logger, workPool *workpool.WorkPool, clients map[string]rep.Client, metricEmitter auctiontypes.AuctionMetricEmitterDelegate, binPackFirstFitWeight float64) map[string]Zone {
+func FetchStateAndBuildZones(logger lager.Logger, workPool *workpool.WorkPool, clients map[string]rep.Client, metricEmitter auctiontypes.AuctionMetricEmitterDelegate, binPackFirstFitWeight float64) (map[string]Zone, int) {
 	var zones map[string]Zone
+	var evacuatingCount int
 	for i := 0; ; i++ {
-		zones = fetchStateAndBuildZones(logger, workPool, clients, metricEmitter, binPackFirstFitWeight)
+		zones, evacuatingCount = fetchStateAndBuildZones(logger, workPool, clients, metricEmitter, binPackFirstFitWeight)
 		if len(zones) > 0 {
 			break
 		}
@@ -26,13 +27,14 @@ func FetchStateAndBuildZones(logger lager.Logger, workPool *workpool.WorkPool, c
 		}
 		logger.Info("failed-to-communicate-to-cells-retry")
 	}
-	return zones
+	return zones, evacuatingCount
 }
 
-func fetchStateAndBuildZones(logger lager.Logger, workPool *workpool.WorkPool, clients map[string]rep.Client, metricEmitter auctiontypes.AuctionMetricEmitterDelegate, binPackFirstFitWeight float64) map[string]Zone {
+func fetchStateAndBuildZones(logger lager.Logger, workPool *workpool.WorkPool, clients map[string]rep.Client, metricEmitter auctiontypes.AuctionMetricEmitterDelegate, binPackFirstFitWeight float64) (map[string]Zone, int) {
 	wg := &sync.WaitGroup{}
 	zones := map[string]Zone{}
 	lock := &sync.Mutex{}
+	evacuatingCount := 0
 
 	wg.Add(len(clients))
 	for guid, client := range clients {
@@ -52,6 +54,9 @@ func fetchStateAndBuildZones(logger lager.Logger, workPool *workpool.WorkPool, c
 			}
 
 			if state.Evacuating {
+				lock.Lock()
+				evacuatingCount++
+				lock.Unlock()
 				logger.Info("ignored-evacuating-cell", lager.Data{"cell-guid": guid, "duration_ns": time.Since(startTime)})
 				return
 			}
@@ -73,10 +78,10 @@ func fetchStateAndBuildZones(logger lager.Logger, workPool *workpool.WorkPool, c
 	wg.Wait()
 
 	if isBinPackFirstFitWeightProvided(binPackFirstFitWeight) {
-		return normaliseCellIndices(zones)
+		return normaliseCellIndices(zones), evacuatingCount
 	}
 
-	return zones
+	return zones, evacuatingCount
 }
 
 func isBinPackFirstFitWeightProvided(binPackFirstFitWeight float64) bool {

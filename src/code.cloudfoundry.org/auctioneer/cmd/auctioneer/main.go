@@ -176,6 +176,9 @@ func initializeAuctionRunner(logger lager.Logger, cfg config.AuctioneerConfig, b
 		logger.Fatal("failed-to-construct-auction-runner-workpool", err, lager.Data{"num-workers": cfg.AuctionRunnerWorkers}) // should never happen
 	}
 
+	// Use config values directly - BOSH spec defaults are:
+	//   freshness_weight: 75.0 (0 disables)
+	//   fresh_lrps_per_cell: 10 (<=0 means no limit)
 	return auctionrunner.New(
 		logger,
 		delegate,
@@ -185,6 +188,8 @@ func initializeAuctionRunner(logger lager.Logger, cfg config.AuctioneerConfig, b
 		cfg.BinPackFirstFitWeight,
 		cfg.StartingContainerWeight,
 		cfg.StartingContainerCountMaximum,
+		cfg.FreshLRPsPerCell,
+		cfg.FreshnessWeight,
 	)
 }
 

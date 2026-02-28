@@ -148,6 +148,26 @@ func BuildCellState(
 	optionalPlacementTags []string,
 	proxyMemoryAllocationMB int,
 ) rep.CellState {
+	return BuildCellStateWithStartTime(cellID, cellIndex, zone, memoryMB, diskMB, containers, evacuating, startingContainerCount, rootFSProviders, lrps, volumeDrivers, placementTags, optionalPlacementTags, proxyMemoryAllocationMB, time.Time{})
+}
+
+func BuildCellStateWithStartTime(
+	cellID string,
+	cellIndex int,
+	zone string,
+	memoryMB int32,
+	diskMB int32,
+	containers int,
+	evacuating bool,
+	startingContainerCount int,
+	rootFSProviders rep.RootFSProviders,
+	lrps []rep.LRP,
+	volumeDrivers []string,
+	placementTags []string,
+	optionalPlacementTags []string,
+	proxyMemoryAllocationMB int,
+	startTime time.Time,
+) rep.CellState {
 	totalResources := rep.NewResources(memoryMB, diskMB, containers)
 
 	availableResources := totalResources.Copy()
@@ -175,5 +195,6 @@ func BuildCellState(
 		placementTags,
 		optionalPlacementTags,
 		proxyMemoryAllocationMB,
+		startTime,
 	)
 }

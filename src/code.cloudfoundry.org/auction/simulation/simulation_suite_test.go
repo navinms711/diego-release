@@ -111,6 +111,8 @@ var _ = BeforeEach(func() {
 		0.0,
 		0.25,
 		defaultMaxContainerStartCount,
+		0,
+		0.0,
 	)
 	runnerProcess = ifrit.Invoke(runner)
 })
