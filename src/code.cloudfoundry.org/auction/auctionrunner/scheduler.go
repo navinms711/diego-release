@@ -58,6 +58,7 @@ type Scheduler struct {
 	freshLRPsPerCell              int // <=0 means no limit on freshness bonus per cell
 	freshnessWeight               float64
 	freshCellBudget               map[string]int // remaining freshness bonus budget per cell GUID
+	dropletLocalityWeight         float64
 }
 
 func NewScheduler(
@@ -71,6 +72,7 @@ func NewScheduler(
 	freshLRPsPerCell int,
 	freshnessWeight float64,
 	evacuatingCount int,
+	dropletLocalityWeight float64,
 ) *Scheduler {
 	// Compute the set of "fresh" cells: the top N most recently started cells,
 	// where N = evacuatingCount. Each fresh cell gets a limited freshness budget
@@ -90,6 +92,7 @@ func NewScheduler(
 		freshLRPsPerCell:              freshLRPsPerCell,
 		freshnessWeight:               freshnessWeight,
 		freshCellBudget:               freshCellBudget,
+		dropletLocalityWeight:         dropletLocalityWeight,
 	}
 }
 
@@ -379,7 +382,7 @@ func (s *Scheduler) scheduleLRPAuction(lrpAuction *auctiontypes.LRPAuction) (*au
 			// A cell is "fresh" only if it still has remaining freshness budget
 			budget, isFresh := s.freshCellBudget[cell.Guid]
 			isFresh = isFresh && budget > 0
-			score, err := cell.ScoreForLRP(&lrpAuction.LRP, s.startingContainerWeight, s.binPackFirstFitWeight, s.freshnessWeight, isFresh)
+			score, err := cell.ScoreForLRP(&lrpAuction.LRP, s.startingContainerWeight, s.binPackFirstFitWeight, s.freshnessWeight, isFresh, s.dropletLocalityWeight)
 			if err != nil {
 				cellStates[cell.Guid] = NewCellResourceState(cell.State())
 				removeNonApplicableProblems(problems, err)

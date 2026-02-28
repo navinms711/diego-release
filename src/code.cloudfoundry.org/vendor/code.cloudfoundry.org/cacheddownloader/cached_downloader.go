@@ -47,6 +47,10 @@ type CachedDownloader interface {
 	// RecoverState checks to see if a state file exists (from a previous SaveState call), and restores
 	// the cache state from that information if such a file exists. This should be called on startup.
 	RecoverState(logger lager.Logger) error
+
+	// ListHashedKeys returns the list of cache keys in MD5-hashed form (as stored) for droplet locality.
+	// Results are capped at maxKeys to limit payload size; maxKeys <= 0 uses a default cap.
+	ListHashedKeys(maxKeys int) []string
 }
 
 func NoopTransform(source, destination string) (int64, error) {
@@ -141,6 +145,10 @@ func (c *cachedDownloader) SaveState(logger lager.Logger) error {
 	}
 
 	return os.WriteFile(c.cacheLocation, json, 0600)
+}
+
+func (c *cachedDownloader) ListHashedKeys(maxKeys int) []string {
+	return c.cache.ListHashedKeys(maxKeys)
 }
 
 func (c *cachedDownloader) RecoverState(logger lager.Logger) error {

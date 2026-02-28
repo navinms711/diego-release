@@ -3,6 +3,7 @@ module code.cloudfoundry.org
 go 1.25.7
 
 replace (
+	code.cloudfoundry.org/cacheddownloader => ./cacheddownloader
 	code.cloudfoundry.org/garden => ../garden
 	code.cloudfoundry.org/grootfs => ../grootfs
 	code.cloudfoundry.org/guardian => ../guardian

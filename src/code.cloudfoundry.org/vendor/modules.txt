@@ -9,7 +9,7 @@ code.cloudfoundry.org/archiver/extractor/test_helper
 # code.cloudfoundry.org/bytefmt v0.67.0
 ## explicit; go 1.25.0
 code.cloudfoundry.org/bytefmt
-# code.cloudfoundry.org/cacheddownloader v0.0.0-20250312193827-23c030d5e4f3
+# code.cloudfoundry.org/cacheddownloader v0.0.0-20250312193827-23c030d5e4f3 => ./cacheddownloader
 ## explicit; go 1.21
 code.cloudfoundry.org/cacheddownloader
 code.cloudfoundry.org/cacheddownloader/cacheddownloaderfakes
@@ -1008,6 +1008,7 @@ gopkg.in/yaml.v2
 # gopkg.in/yaml.v3 v3.0.1
 ## explicit
 gopkg.in/yaml.v3
+# code.cloudfoundry.org/cacheddownloader => ./cacheddownloader
 # code.cloudfoundry.org/garden => ../garden
 # code.cloudfoundry.org/grootfs => ../grootfs
 # code.cloudfoundry.org/guardian => ../guardian

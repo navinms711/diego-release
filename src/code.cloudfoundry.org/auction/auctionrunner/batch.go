@@ -39,7 +39,9 @@ func (b *Batch) AddLRPStarts(starts []auctioneer.LRPStartRequest, traceID string
 		start := &starts[i]
 		for _, index := range start.Indices {
 			lrpKey := models.NewActualLRPKey(start.ProcessGuid, int32(index), start.Domain)
-			auction := auctiontypes.NewLRPAuction(rep.NewLRP("", lrpKey, start.Resource, start.PlacementConstraint), now)
+			lrp := rep.NewLRP("", lrpKey, start.Resource, start.PlacementConstraint)
+			lrp.DropletCacheKeyHash = start.DropletCacheKeyHash
+			auction := auctiontypes.NewLRPAuction(lrp, now)
 			auctions = append(auctions, auction)
 		}
 	}

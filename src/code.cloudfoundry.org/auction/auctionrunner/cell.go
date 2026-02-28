@@ -48,7 +48,7 @@ func (c *Cell) State() rep.CellState {
 	return c.state
 }
 
-func (c *Cell) ScoreForLRP(lrp *rep.LRP, startingContainerWeight, binPackFirstFitWeight, freshnessWeight float64, isFreshCell bool) (float64, error) {
+func (c *Cell) ScoreForLRP(lrp *rep.LRP, startingContainerWeight, binPackFirstFitWeight, freshnessWeight float64, isFreshCell bool, dropletLocalityWeight float64) (float64, error) {
 	proxiedLRP := rep.Resource{
 		MemoryMB: lrp.Resource.MemoryMB + int32(c.state.ProxyMemoryAllocationMB),
 		DiskMB:   lrp.Resource.DiskMB,
@@ -77,25 +77,33 @@ func (c *Cell) ScoreForLRP(lrp *rep.LRP, startingContainerWeight, binPackFirstFi
 	// where N = number of currently evacuating cells. This ensures LRPs from
 	// evacuating cells are directed to the most recently upgraded cells
 	// (typically from the previous BOSH upgrade batch).
-	//
-	// Unlike a time-window approach, this Top-N method is immune to batch
-	// timing variations and self-disables when no upgrade is in progress.
 	freshnessBonus := 0.0
 	if isFreshCell && freshnessWeight > 0 {
 		freshnessBonus = -freshnessWeight
 	}
 
-	score := resourceScore + float64(localityScore) + indexScore + freshnessBonus
+	// Droplet locality: prefer cells that already have this LRP's droplet in cache (lower score = better).
+	dropletLocalityBonus := 0.0
+	if dropletLocalityWeight > 0 && lrp.DropletCacheKeyHash != "" {
+		for _, h := range c.state.CachedDropletHashes {
+			if h == lrp.DropletCacheKeyHash {
+				dropletLocalityBonus = -dropletLocalityWeight
+				break
+			}
+		}
+	}
 
+	score := resourceScore + float64(localityScore) + indexScore + freshnessBonus + dropletLocalityBonus
 	c.logger.Debug("score-for-lrp", lager.Data{
-		"cell-guid":       c.Guid,
-		"cell-index":      c.state.CellIndex,
-		"locality-score":  localityScore,
-		"resource-score":  resourceScore,
-		"index-score":     indexScore,
-		"is-fresh-cell":   isFreshCell,
-		"freshness-bonus": freshnessBonus,
-		"score":           score,
+		"cell-guid":              c.Guid,
+		"cell-index":             c.state.CellIndex,
+		"locality-score":         localityScore,
+		"resource-score":         resourceScore,
+		"index-score":            indexScore,
+		"is-fresh-cell":          isFreshCell,
+		"freshness-bonus":        freshnessBonus,
+		"droplet-locality-bonus": dropletLocalityBonus,
+		"score":                  score,
 	})
 	return score, nil
 }

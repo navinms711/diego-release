@@ -23,6 +23,7 @@ func BuildLRPStartRequest(
 		indices,
 		rep.NewResource(memoryMB, diskMB, maxPids),
 		rep.NewPlacementConstraint(rootFS, placementTags, volumeDriver),
+		"",
 	)
 }
 
@@ -148,7 +149,7 @@ func BuildCellState(
 	optionalPlacementTags []string,
 	proxyMemoryAllocationMB int,
 ) rep.CellState {
-	return BuildCellStateWithStartTime(cellID, cellIndex, zone, memoryMB, diskMB, containers, evacuating, startingContainerCount, rootFSProviders, lrps, volumeDrivers, placementTags, optionalPlacementTags, proxyMemoryAllocationMB, time.Time{})
+	return BuildCellStateWithStartTime(cellID, cellIndex, zone, memoryMB, diskMB, containers, evacuating, startingContainerCount, rootFSProviders, lrps, volumeDrivers, placementTags, optionalPlacementTags, proxyMemoryAllocationMB, time.Time{}, nil)
 }
 
 func BuildCellStateWithStartTime(
@@ -167,6 +168,7 @@ func BuildCellStateWithStartTime(
 	optionalPlacementTags []string,
 	proxyMemoryAllocationMB int,
 	startTime time.Time,
+	cachedDropletHashes []string,
 ) rep.CellState {
 	totalResources := rep.NewResources(memoryMB, diskMB, containers)
 
@@ -196,5 +198,6 @@ func BuildCellStateWithStartTime(
 		optionalPlacementTags,
 		proxyMemoryAllocationMB,
 		startTime,
+		cachedDropletHashes,
 	)
 }

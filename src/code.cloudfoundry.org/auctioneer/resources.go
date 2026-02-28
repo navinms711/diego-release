@@ -1,7 +1,9 @@
 package auctioneer
 
 import (
+	"crypto/md5"
 	"errors"
+	"fmt"
 
 	"code.cloudfoundry.org/bbs/models"
 	"code.cloudfoundry.org/rep"
@@ -44,21 +46,30 @@ func (t *TaskStartRequest) Validate() error {
 }
 
 type LRPStartRequest struct {
-	ProcessGuid string `json:"process_guid"`
-	Domain      string `json:"domain"`
-	Indices     []int  `json:"indices"`
+	ProcessGuid        string `json:"process_guid"`
+	Domain             string `json:"domain"`
+	Indices            []int  `json:"indices"`
+	DropletCacheKeyHash string `json:"droplet_cache_key_hash,omitempty"`
 	rep.PlacementConstraint
 	rep.Resource
 }
 
-func NewLRPStartRequest(processGuid, domain string, indices []int, res rep.Resource, pl rep.PlacementConstraint) LRPStartRequest {
+func NewLRPStartRequest(processGuid, domain string, indices []int, res rep.Resource, pl rep.PlacementConstraint, dropletCacheKeyHash string) LRPStartRequest {
 	return LRPStartRequest{
 		ProcessGuid:         processGuid,
 		Domain:              domain,
 		Indices:             indices,
+		DropletCacheKeyHash: dropletCacheKeyHash,
 		Resource:            res,
 		PlacementConstraint: pl,
 	}
+}
+
+func dropletCacheKeyHashFromCachedDeps(cachedDeps []*models.CachedDependency) string {
+	if len(cachedDeps) == 0 || cachedDeps[0].CacheKey == "" {
+		return ""
+	}
+	return fmt.Sprintf("%x", md5.Sum([]byte(cachedDeps[0].CacheKey)))
 }
 
 func NewLRPStartRequestFromModel(d *models.DesiredLRP, indices ...int) LRPStartRequest {
@@ -73,16 +84,19 @@ func NewLRPStartRequestFromModel(d *models.DesiredLRP, indices ...int) LRPStartR
 		indices,
 		rep.NewResource(d.MemoryMb, d.DiskMb, d.MaxPids),
 		rep.NewPlacementConstraint(d.RootFs, d.PlacementTags, volumeDrivers),
+		dropletCacheKeyHashFromCachedDeps(d.CachedDependencies),
 	)
 }
 
 func NewLRPStartRequestFromSchedulingInfo(s *models.DesiredLRPSchedulingInfo, indices ...int) LRPStartRequest {
+	// DesiredLRPSchedulingInfo does not include CachedDependencies (those are on RunInfo); pass nil so droplet hash is empty.
 	return NewLRPStartRequest(
 		s.ProcessGuid,
 		s.Domain,
 		indices,
 		rep.NewResource(s.MemoryMb, s.DiskMb, s.MaxPids),
 		rep.NewPlacementConstraint(s.RootFs, s.PlacementTags, s.VolumePlacement.DriverNames),
+		dropletCacheKeyHashFromCachedDeps(nil),
 	)
 }
 

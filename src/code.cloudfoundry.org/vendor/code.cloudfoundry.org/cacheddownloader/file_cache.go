@@ -345,6 +345,29 @@ func (c *FileCache) GetDirectory(logger lager.Logger, cacheKey string) (string, 
 	return dir, entry.CachingInfo, nil
 }
 
+// ListHashedKeys returns the list of cache keys (MD5-hashed form as stored in Entries)
+// currently in the cache, for use in droplet locality reporting. Results are capped at maxKeys
+// to limit CellState size; if maxKeys <= 0, a default cap of 500 is used.
+func (c *FileCache) ListHashedKeys(maxKeys int) []string {
+	if maxKeys <= 0 {
+		maxKeys = 500
+	}
+	lock.Lock()
+	defer lock.Unlock()
+	n := len(c.Entries)
+	if n > maxKeys {
+		n = maxKeys
+	}
+	out := make([]string, 0, n)
+	for k := range c.Entries {
+		if len(out) >= maxKeys {
+			break
+		}
+		out = append(out, k)
+	}
+	return out
+}
+
 func (c *FileCache) Remove(logger lager.Logger, cacheKey string) {
 	logger = logger.Session("file-cache.remove", lager.Data{"cache_key": cacheKey})
 

@@ -26,6 +26,7 @@ type auctionRunner struct {
 	startingContainerCountMaximum int
 	freshLRPsPerCell              int
 	freshnessWeight               float64
+	dropletLocalityWeight         float64
 }
 
 func New(
@@ -39,6 +40,7 @@ func New(
 	startingContainerCountMaximum int,
 	freshLRPsPerCell int,
 	freshnessWeight float64,
+	dropletLocalityWeight float64,
 ) *auctionRunner {
 	return &auctionRunner{
 		logger:                        logger,
@@ -52,6 +54,7 @@ func New(
 		startingContainerCountMaximum: startingContainerCountMaximum,
 		freshLRPsPerCell:              freshLRPsPerCell,
 		freshnessWeight:               freshnessWeight,
+		dropletLocalityWeight:         dropletLocalityWeight,
 	}
 }
 
@@ -117,7 +120,7 @@ func (a *auctionRunner) Run(signals <-chan os.Signal, ready chan<- struct{}) err
 				Tasks: taskAuctions,
 			}
 
-			scheduler := NewScheduler(a.workPool, zones, a.clock, logger, a.binPackFirstFitWeight, a.startingContainerWeight, a.startingContainerCountMaximum, a.freshLRPsPerCell, a.freshnessWeight, evacuatingCount)
+			scheduler := NewScheduler(a.workPool, zones, a.clock, logger, a.binPackFirstFitWeight, a.startingContainerWeight, a.startingContainerCountMaximum, a.freshLRPsPerCell, a.freshnessWeight, evacuatingCount, a.dropletLocalityWeight)
 			auctionResults := scheduler.Schedule(auctionRequest)
 			logger.Info("scheduled", lager.Data{
 				"successful-lrp-start-auctions": len(auctionResults.SuccessfulLRPs),

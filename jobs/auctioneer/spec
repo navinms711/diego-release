@@ -60,6 +60,10 @@ properties:
   diego.auctioneer.freshness_weight:
     description: "Scoring bonus for recently started cells during placement. When cells are evacuating (e.g., during rolling upgrades), the auctioneer gives this bonus to the N most recently started cells, where N equals the number of evacuating cells. This helps direct evacuated apps to freshly upgraded cells, reducing app rebouncing. Higher values give stronger preference to fresh cells. Value of 0 disables this feature."
     default: 50.0
+  diego.auctioneer.droplet_locality_weight:
+    description: "Scoring bonus for cells that already have the LRP's droplet in their cache (droplet locality). When > 0, the auctioneer prefers placing LRPs on cells that have the droplet cached, reducing cold downloads. Value of 0 disables this feature."
+    default: 0.0
+
   diego.auctioneer.bbs.api_location:
     description: "Address to the BBS Server"
     default: "bbs.service.cf.internal:8889"

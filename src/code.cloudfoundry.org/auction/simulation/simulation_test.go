@@ -37,7 +37,7 @@ var _ = Describe("Auction", func() {
 	}
 
 	newLRPStartAuction := func(processGuid string, index int, memoryMB int32) auctioneer.LRPStartRequest {
-		return auctioneer.NewLRPStartRequest(processGuid, "auction", []int{index}, rep.NewResource(memoryMB, 1, 10), rep.NewPlacementConstraint(linuxRootFSURL, []string{}, []string{}))
+		return auctioneer.NewLRPStartRequest(processGuid, "auction", []int{index}, rep.NewResource(memoryMB, 1, 10), rep.NewPlacementConstraint(linuxRootFSURL, []string{}, []string{}), "")
 	}
 
 	generateUniqueLRPStartAuctions := func(numInstances int, memoryMB int32) []auctioneer.LRPStartRequest {
