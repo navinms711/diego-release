@@ -80,6 +80,11 @@ fi
 echo "$current_cache_config" > "$cache_config_marker"
 chown vcap:vcap "$cache_config_marker"
 
+# Droplet/download cache on persistent disk (survives recreates)
+store_cache_dir=/var/vcap/store/rep_download_cache
+mkdir -p "$store_cache_dir"
+chown -R vcap:vcap "$store_cache_dir"
+
 trusted_certs_dir=${garden_shared_dir}/trusted_certs
 rm -rf "$trusted_certs_dir"
 <% if_p("containers.trusted_ca_certificates") do %>
