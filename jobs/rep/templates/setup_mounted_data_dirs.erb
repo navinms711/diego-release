@@ -55,9 +55,9 @@ mkdir -p "$instance_identity_dir"
 mount -t tmpfs -o size=$instance_tmpfs_size tmpfs $instance_identity_dir
 chown -R vcap:vcap "$instance_identity_dir"
 
-cache_dir=${garden_shared_dir}/download_cache
+cache_dir="<%= p("diego.rep.download_cache_dir") %>"
 mkdir -p "$cache_dir"
-chown -R vcap:vcap $cache_dir
+chown -R vcap:vcap "$cache_dir"
 
 # Invalidate download cache when extraction-relevant config changes.
 # The cf-pcap flag changes how archived files are extracted (xattrs

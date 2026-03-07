@@ -1,4 +1,4 @@
-﻿$ErrorActionPreference = "Stop";
+$ErrorActionPreference = "Stop";
 trap { $host.SetShouldExit(1) }
 
 function allowContainerUsersAccess {
@@ -53,7 +53,7 @@ checkAndRemove "/var/vcap/data/rep/shared/garden/volume_mounted_files"
 
 $bindmountDirs = @()
 
-$cache_dir = "/var/vcap/data/rep/shared/garden/download_cache"
+$cache_dir = "<%= p("diego.rep.download_cache_dir") %>"
 New-Item -Path $cache_dir -ItemType "directory" -Force
 $bindmountDirs += $cache_dir
 

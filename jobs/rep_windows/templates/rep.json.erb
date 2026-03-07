@@ -3,7 +3,7 @@
   tmp_dir = "/var/vcap/data/rep/tmp"
   trusted_certs_dir = "/var/vcap/data/rep/shared/garden/trusted_certs"
   instance_identity_dir = "/var/vcap/data/rep/shared/garden/instance_identity"
-  download_cache_dir= "/var/vcap/data/rep/shared/garden/download_cache"
+  download_cache_dir = p("diego.rep.download_cache_dir")
   volume_mounted_files = "/var/vcap/data/rep/shared/garden/volume_mounted_files"
 
   zone = spec.az
