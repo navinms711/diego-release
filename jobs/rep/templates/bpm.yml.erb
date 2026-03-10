@@ -17,5 +17,4 @@ processes:
     - path : /var/vcap/data/garden
       writable: true
     - path: <%= p("diego.rep.extra_root_fs_dir") %>
-    - path: /var/vcap/store/rep
-      writable: true
+    # Do not add /var/vcap/store/rep: BPM reserves it as the job's default store directory.
