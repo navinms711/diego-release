@@ -12,6 +12,7 @@ templates:
   rep.json.erb: config/rep.json
   bpm.yml.erb: config/bpm.yml
   bpm-pre-start.erb: bin/bpm-pre-start
+  mount_rep_cache.erb: bin/mount_rep_cache
   set-rep-kernel-params.erb: bin/set-rep-kernel-params
   setup_mounted_data_dirs.erb: bin/setup_mounted_data_dirs
   post-start.erb: bin/post-start

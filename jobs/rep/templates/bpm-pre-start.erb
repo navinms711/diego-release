@@ -2,6 +2,9 @@
 
 bin_dir=/var/vcap/jobs/rep/bin
 
+# Mount pre-warmed cache disk at /mnt/rep_cache if present (must run before rep starts)
+$bin_dir/mount_rep_cache
+
 $bin_dir/set-rep-kernel-params
 
 $bin_dir/setup_mounted_data_dirs

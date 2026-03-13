@@ -1,0 +1,35 @@
+#!/bin/bash -e
+# Mount pre-warmed persistent disk at /mnt/rep_cache if present (label REP_CACHE).
+# Rep will use this path as cache when it is a mount point; otherwise rep uses the configured default.
+
+MOUNT_PATH="/mnt/rep_cache"
+CACHE_LABEL="REP_CACHE"
+
+mkdir -p "$MOUNT_PATH"
+
+# Rescan SCSI so a newly attached disk appears
+for h in /sys/class/scsi_host/host*/scan; do
+  echo "- - -" > "$h" 2>/dev/null || true
+done
+sleep 2
+
+# If already mounted (e.g. from previous run), do nothing
+if mountpoint -q "$MOUNT_PATH" 2>/dev/null; then
+  exit 0
+fi
+
+# Find block device with label REP_CACHE
+DEV=""
+for b in /dev/sd[a-z] /dev/sd[a-z][a-z] /dev/xvd[a-z]; do
+  [ -b "$b" ] || continue
+  LABEL=$(blkid -o value -s LABEL "$b" 2>/dev/null || true)
+  if [ "$LABEL" = "$CACHE_LABEL" ]; then
+    DEV="$b"
+    break
+  fi
+done
+
+if [ -n "$DEV" ]; then
+  mount -L "$CACHE_LABEL" "$MOUNT_PATH"
+  chown -R vcap:vcap "$MOUNT_PATH"
+fi
