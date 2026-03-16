@@ -13,6 +13,7 @@ templates:
   bpm.yml.erb: config/bpm.yml
   bpm-pre-start.erb: bin/bpm-pre-start
   mount_rep_cache.erb: bin/mount_rep_cache
+  disk_attach_callback.env.erb: config/disk_attach_callback.env
   set-rep-kernel-params.erb: bin/set-rep-kernel-params
   setup_mounted_data_dirs.erb: bin/setup_mounted_data_dirs
   post-start.erb: bin/post-start
@@ -349,3 +350,10 @@ properties:
   containers.layering_mode:
     description: "Configures downloaded container asset management mode. Valid values are 'single-layer' and 'two-layer'. Setting this property to 'two-layer' enables the conversion of some downloaded Task and LRP assets to container image layers."
     default: "single-layer"
+
+  diego.rep.disk_attach_callback_url:
+    description: "URL (DNS name or IP) of the attach callback service. When set, pre-start will POST the cell index to /attach-disk/rep_cache_<index> to trigger disk attach before scanning. Example: http://jumpbox.example.com or http://10.0.0.5. Leave empty to skip the callback (e.g. disk attached by other means)."
+    default: ""
+  diego.rep.disk_attach_callback_auth_key:
+    description: "Pre-shared key for authenticating to the disk attach callback. Sent in the X-Attach-Token header. Leave empty if the callback service does not require auth."
+    default: ""

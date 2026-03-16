@@ -1,35 +1,130 @@
 #!/bin/bash -e
 # Mount pre-warmed persistent disk at /mnt/rep_cache if present (label REP_CACHE).
 # Rep will use this path as cache when it is a mount point; otherwise rep uses the configured default.
+# When disk_attach_callback_url is set, pre-start POSTs the cell index to that endpoint to trigger
+# disk attach (e.g. on a jumpbox running the attach HTTP server) before scanning for the device.
 
 MOUNT_PATH="/mnt/rep_cache"
 CACHE_LABEL="REP_CACHE"
+WAIT_TIMEOUT=30
+CALLBACK_CONFIG="/var/vcap/jobs/rep/config/disk_attach_callback.env"
+CALLBACK_TIMEOUT=15
+OUT_DIR="/var/vcap/jobs/rep/attach-callback"
 
 mkdir -p "$MOUNT_PATH"
 
-# Rescan SCSI so a newly attached disk appears
-for h in /sys/class/scsi_host/host*/scan; do
-  echo "- - -" > "$h" 2>/dev/null || true
-done
-sleep 2
-
 # If already mounted (e.g. from previous run), do nothing
 if mountpoint -q "$MOUNT_PATH" 2>/dev/null; then
+  echo "Mountpoint $MOUNT_PATH already exists. Exiting."
   exit 0
 fi
 
-# Find block device with label REP_CACHE
-DEV=""
-for b in /dev/sd[a-z] /dev/sd[a-z][a-z] /dev/xvd[a-z]; do
-  [ -b "$b" ] || continue
-  LABEL=$(blkid -o value -s LABEL "$b" 2>/dev/null || true)
-  if [ "$LABEL" = "$CACHE_LABEL" ]; then
-    DEV="$b"
-    break
+# Source callback config so we can call the attach endpoint when configured
+if [ -f "$CALLBACK_CONFIG" ]; then
+  chmod 600 "$CALLBACK_CONFIG" 2>/dev/null || true
+  set -a
+  # shellcheck source=/dev/null
+  source "$CALLBACK_CONFIG"
+  set +a
+fi
+
+CELL_IDX=$(jq -r '.index' /var/vcap/bosh/spec.json 2>/dev/null || true)
+
+if [[ -z "${DISK_ATTACH_CALLBACK_URL:-}" ]]; then
+  echo "Disk attach callback URL is not set; Exiting."
+  echo "Rep process will use the default ephemeral disk at /var/vcap/data for its operations."
+  exit 0
+fi
+
+# Trigger disk attach via HTTP callback (jumpbox or attach server)
+if [ -n "${DISK_ATTACH_CALLBACK_URL:-}" ] && [ -n "$CELL_IDX" ]; then
+  mkdir -p "$OUT_DIR"
+  chown vcap:vcap "$OUT_DIR"
+  TS=$(date +%Y%m%d-%H%M%S)
+  RESPONSE_FILE="${OUT_DIR}/attach-response-${TS}.json"
+  STATUS_FILE="${OUT_DIR}/attach-status-${TS}.txt"
+
+  # Show last successful attach response if present (informational)
+  LATEST_RESPONSE=$(ls -t "${OUT_DIR}"/attach-response-*.json 2>/dev/null | head -1)
+  if [ -n "$LATEST_RESPONSE" ] && [ -f "$LATEST_RESPONSE" ]; then
+    echo "The last successful disk attach response found in: $LATEST_RESPONSE"
+    BACKING_FILE=$(jq -r '.devices[0].backing.fileName // empty' "$LATEST_RESPONSE" 2>/dev/null || true)
+    if [ -n "$BACKING_FILE" ]; then
+      echo "The delta disk from the hot-attach is: $BACKING_FILE"
+    fi
   fi
+
+  BASE_URL="${DISK_ATTACH_CALLBACK_URL%/}"
+  DISK_NAME="rep_cache_${CELL_IDX}"
+  ENDPOINT="${BASE_URL}/attach-disk/${DISK_NAME}"
+  echo "The curl request sent to disk attach controller: $ENDPOINT"
+
+  CURL_OPTS=(-s -w "%{http_code}" -o "$RESPONSE_FILE" --connect-timeout 5 --max-time "$CALLBACK_TIMEOUT" -X POST -H "Content-Type: application/json" -d "{\"index\": ${CELL_IDX}}")
+  if [ -n "${DISK_ATTACH_CALLBACK_AUTH_KEY:-}" ]; then
+    CURL_OPTS+=(-H "X-Attach-Token: ${DISK_ATTACH_CALLBACK_AUTH_KEY}")
+  fi
+  HTTP_CODE=$(curl "${CURL_OPTS[@]}" "$ENDPOINT" 2>/dev/null || echo "000")
+  echo "$HTTP_CODE" > "$STATUS_FILE"
+  echo "The curl reply was written to: $RESPONSE_FILE"
+
+  if [[ "$HTTP_CODE" != "200" ]]; then
+    echo "The curl response was $HTTP_CODE. Exiting this script to continue normal operations."
+    echo "This means the REP process will fallback to using the ephemeral disk /var/vcap/data as droplets cache."
+    exit 0
+  fi
+
+  echo "The persistent disk was attached to this VM successfully."
+  echo "Waiting for the block device to appear.."
+  sleep 2
+fi
+
+# Wait up to WAIT_TIMEOUT seconds for a suitable block device (by label or unlabeled unmounted)
+DEV=""
+DEADLINE=$(($(date +%s) + WAIT_TIMEOUT))
+while [ $(date +%s) -lt "$DEADLINE" ]; do
+  # Rescan SCSI so a newly attached disk appears
+  for h in /sys/class/scsi_host/host*/scan; do
+    echo "- - -" > "$h" 2>/dev/null || true
+  done
+  sleep 2
+
+  # Phase 1: find block device with label REP_CACHE
+  for b in /dev/sd[a-z] /dev/sd[a-z][a-z] /dev/xvd[a-z]; do
+    [ -b "$b" ] || continue
+    LABEL=$(blkid -o value -s LABEL "$b" 2>/dev/null || true)
+    if [ "$LABEL" = "$CACHE_LABEL" ]; then
+      DEV="$b"
+      break 2
+    fi
+  done
+
+  # Phase 2: if no labeled device, use first unlabeled unmounted block device
+  if [ -z "$DEV" ]; then
+    for b in /dev/sd[a-z] /dev/sd[a-z][a-z] /dev/xvd[a-z]; do
+      [ -b "$b" ] || continue
+      LABEL=$(blkid -o value -s LABEL "$b" 2>/dev/null || true)
+      [ -n "$LABEL" ] && continue
+      grep -qE "^${b}([0-9]+)? " /proc/mounts 2>/dev/null && continue
+      DEV="$b"
+      break 2
+    done
+  fi
+
+  [ -n "$DEV" ] && break
 done
 
-if [ -n "$DEV" ]; then
-  mount -L "$CACHE_LABEL" "$MOUNT_PATH"
+if [ -z "$DEV" ]; then
+  echo "No device with label $CACHE_LABEL or unlabeled unmounted disk found within ${WAIT_TIMEOUT}s; skipping mount."
+  echo "The disk could not be attached. Exiting here. The REP process will use its ephemeral disk /var/vcap/data for caching droplets."
+  exit 0
+fi
+
+echo "Found block device $DEV"
+
+# Mount only; do not format - disk may contain pre-warmed droplet cache
+if mount "$DEV" "$MOUNT_PATH" 2>/dev/null; then
   chown -R vcap:vcap "$MOUNT_PATH"
+  echo "Mounted the rep cache disk to $MOUNT_PATH"
+else
+  echo "Device $DEV could not be mounted (not a valid filesystem or not ready); skipping." >&2
 fi
