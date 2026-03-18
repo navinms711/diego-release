@@ -2,7 +2,7 @@
 
 bin_dir=/var/vcap/jobs/rep/bin
 
-# Mount pre-warmed cache disk at /mnt/rep_cache if present (must run before rep starts)
+# Mount pre-warmed cache disk at /var/vcap/store/rep_download_cache if present (must run before rep starts)
 $bin_dir/mount_rep_cache
 
 $bin_dir/set-rep-kernel-params

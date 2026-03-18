@@ -63,8 +63,8 @@ properties:
     description: "dir to scan for extra rootfs to be loaded by rep"
     default: "/var/vcap/store/rootfses"
   diego.rep.download_cache_dir:
-    description: "directory for the rep's droplet/download cache. Use a path on persistent disk (e.g. /var/vcap/store/rep_download_cache) so the cache survives VM recreates and can speed up drain. Ephemeral path was /var/vcap/data/rep/shared/garden/download_cache."
-    default: "/var/vcap/store/rep_download_cache"
+    description: "Fallback droplet cache path when /var/vcap/store/rep_download_cache is not a mount (pre-warmed disk). Rep prefers the store path when it is a mount point; otherwise uses this default (ephemeral)."
+    default: "/var/vcap/data/rep/shared/garden/download_cache"
   diego.rep.rootfs_providers:
     description: "Array of schemes for which the underlying garden can support arbitrary root filesystems"
     default:

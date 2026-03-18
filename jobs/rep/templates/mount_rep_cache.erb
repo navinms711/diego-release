@@ -1,16 +1,18 @@
 #!/bin/bash -e
-# Mount pre-warmed persistent disk at /mnt/rep_cache if present (label REP_CACHE).
-# Rep will use this path as cache when it is a mount point; otherwise rep uses the configured default.
+# Mount pre-warmed persistent disk at /var/vcap/store/rep_download_cache if present (label REP_CACHE).
+# Rep prefers this path when it is a mount point; otherwise rep uses the ephemeral download_cache path.
 # When disk_attach_callback_url is set, pre-start POSTs the cell index to that endpoint to trigger
 # disk attach (e.g. on a jumpbox running the attach HTTP server) before scanning for the device.
 
-MOUNT_PATH="/mnt/rep_cache"
+MOUNT_PATH="/var/vcap/store/rep_download_cache"
 CACHE_LABEL="REP_CACHE"
 WAIT_TIMEOUT=30
 CALLBACK_CONFIG="/var/vcap/jobs/rep/config/disk_attach_callback.env"
 CALLBACK_TIMEOUT=15
 OUT_DIR="/var/vcap/jobs/rep/attach-callback"
 
+# Create parent dirs so we can mount the device here (pre-start runs as root).
+mkdir -p /var/vcap/store
 mkdir -p "$MOUNT_PATH"
 
 # If already mounted (e.g. from previous run), do nothing
@@ -32,7 +34,7 @@ CELL_IDX=$(jq -r '.index' /var/vcap/bosh/spec.json 2>/dev/null || true)
 
 if [[ -z "${DISK_ATTACH_CALLBACK_URL:-}" ]]; then
   echo "Disk attach callback URL is not set; Exiting."
-  echo "Rep process will use the default ephemeral disk at /var/vcap/data for its operations."
+  echo "Rep process will use the default ephemeral path /var/vcap/data/rep/shared/garden/download_cache for its operations."
   exit 0
 fi
 
@@ -69,7 +71,7 @@ if [ -n "${DISK_ATTACH_CALLBACK_URL:-}" ] && [ -n "$CELL_IDX" ]; then
 
   if [[ "$HTTP_CODE" != "200" ]]; then
     echo "The curl response was $HTTP_CODE. Exiting this script to continue normal operations."
-    echo "This means the REP process will fallback to using the ephemeral disk /var/vcap/data as droplets cache."
+    echo "This means the REP process will fallback to using the ephemeral path /var/vcap/data/rep/shared/garden/download_cache as droplets cache."
     exit 0
   fi
 
@@ -115,7 +117,7 @@ done
 
 if [ -z "$DEV" ]; then
   echo "No device with label $CACHE_LABEL or unlabeled unmounted disk found within ${WAIT_TIMEOUT}s; skipping mount."
-  echo "The disk could not be attached. Exiting here. The REP process will use its ephemeral disk /var/vcap/data for caching droplets."
+  echo "The disk could not be attached. Exiting here. The REP process will use its ephemeral path /var/vcap/data/rep/shared/garden/download_cache for caching droplets."
   exit 0
 fi
 
@@ -124,7 +126,7 @@ echo "Found block device $DEV"
 # Mount only; do not format - disk may contain pre-warmed droplet cache
 if mount "$DEV" "$MOUNT_PATH" 2>/dev/null; then
   chown -R vcap:vcap "$MOUNT_PATH"
-  echo "Mounted the rep cache disk to $MOUNT_PATH"
+  echo "Mounted the rep cache disk to $MOUNT_PATH (rep will use this for droplet cache)."
 else
   echo "Device $DEV could not be mounted (not a valid filesystem or not ready); skipping." >&2
 fi

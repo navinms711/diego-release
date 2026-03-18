@@ -73,7 +73,7 @@ rsync_one() {
   local CELL_INSTANCE="compute/${idx}"
   bosh -d "$DEPLOYMENT_NAME" ssh "$CELL_INSTANCE" --command='sudo bash -c "
     set -e
-    MOUNT_PATH=/mnt/rep_cache
+    MOUNT_PATH=/var/vcap/store/rep_download_cache
     CACHE_LABEL=REP_CACHE
     CACHE_SRC=/var/vcap/data/rep/shared/garden/download_cache
     for h in /sys/class/scsi_host/host*/scan; do echo \"- - -\" > \"\$h\" 2>/dev/null || true; done
@@ -97,7 +97,8 @@ rsync_one() {
     if [ \"\$(blkid -o value -s LABEL \"\$DEV\" 2>/dev/null)\" != \"\$CACHE_LABEL\" ]; then
       mkfs.ext4 -L \"\$CACHE_LABEL\" \"\$DEV\" || true
     fi
-    rm -rf \"\$MOUNT_PATH\" 2>/dev/null; mkdir -p \"\$MOUNT_PATH\"
+    mkdir -p /var/vcap/store
+    mkdir -p \"\$MOUNT_PATH\"
     mount -L \"\$CACHE_LABEL\" \"\$MOUNT_PATH\" || true
     rsync -ac --delete \"\${CACHE_SRC}/\" \"\$MOUNT_PATH\" || true
     du -sb \"\${CACHE_SRC}/\" \"\$MOUNT_PATH\" || true
