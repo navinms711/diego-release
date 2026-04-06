@@ -18,3 +18,7 @@ processes:
       writable: true
     - path: <%= p("diego.rep.extra_root_fs_dir") %>
     # Do not add /var/vcap/store/rep: BPM reserves it as the job's default store directory.
+    # Bind-mount the pre-warmed droplet cache disk (hot-attached in bpm-pre-start) into the
+    # BPM container so rep can detect it via the rep_cache_path flag file and use it.
+    - path: /var/vcap/store/rep_download_cache
+      writable: true

@@ -11,8 +11,11 @@ templates:
   instance_identity.key.erb: config/certs/rep/instance_identity.key
   rep.json.erb: config/rep.json
   bpm.yml.erb: config/bpm.yml
+  pre-start.erb: bin/pre-start
   bpm-pre-start.erb: bin/bpm-pre-start
   mount_rep_cache.erb: bin/mount_rep_cache
+  bosh_instance_index.erb: config/bosh_instance_index
+  rep-mount-rep-cache.sudoers.erb: config/rep-mount-rep-cache.sudoers
   disk_attach_callback.env.erb: config/disk_attach_callback.env
   set-rep-kernel-params.erb: bin/set-rep-kernel-params
   setup_mounted_data_dirs.erb: bin/setup_mounted_data_dirs
@@ -41,7 +44,7 @@ properties:
     description: "The interval to look for completed tasks and LRPs in seconds"
     default: 30
   diego.rep.evacuation_polling_interval_in_seconds:
-    description: "The interval to look for completed tasks and LRPs during evacuation in seconds"
+    description: "The base interval to look for completed tasks and LRPs during evacuation in seconds. The Rep uses adaptive polling: it starts at 50% of this value and increases by 1s per cycle when BBS errors are detected, up to this configured maximum."
     default: 10
   diego.rep.evacuation_timeout_in_seconds:
     description: "The time to wait for evacuation to complete in seconds"

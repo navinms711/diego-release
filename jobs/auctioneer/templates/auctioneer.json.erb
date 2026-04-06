@@ -27,11 +27,11 @@
     rep_client_session_cache_size: p("diego.auctioneer.rep.client_session_cache_size"),
     cell_state_timeout: p("diego.auctioneer.cell_state_timeout"),
     bin_pack_first_fit_weight: p("diego.auctioneer.bin_pack_first_fit_weight"),
-    starting_container_weight: p("diego.auctioneer.starting_container_weight"),
+    starting_container_weight: p("diego.auctioneer.starting_container_weight").to_f,
     starting_container_count_maximum: p("diego.auctioneer.starting_container_count_maximum"),
     fresh_lrps_per_cell: p("diego.auctioneer.fresh_lrps_per_cell"),
-    freshness_weight: p("diego.auctioneer.freshness_weight"),
-    droplet_locality_weight: p("diego.auctioneer.droplet_locality_weight"),
+    freshness_weight: p("diego.auctioneer.freshness_weight").to_f,
+    droplet_locality_weight: p("diego.auctioneer.droplet_locality_weight").to_f,
   }
 
   config[:bbs_ca_cert_file] = "#{conf_dir}/certs/bbs/ca.crt"

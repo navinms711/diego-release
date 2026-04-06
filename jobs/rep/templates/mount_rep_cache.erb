@@ -1,65 +1,121 @@
 #!/bin/bash -e
-# Mount pre-warmed persistent disk at /var/vcap/store/rep_download_cache if present (label REP_CACHE).
-# Rep prefers this path when it is a mount point; otherwise rep uses the ephemeral download_cache path.
-# When disk_attach_callback_url is set, pre-start POSTs the cell index to that endpoint to trigger
-# disk attach (e.g. on a jumpbox running the attach HTTP server) before scanning for the device.
-
+#
+# Mount disk at /var/vcap/store/rep_download_cache for rep droplet cache.
+#
+# When disk_attach_callback_url is set, this script:
+#   1. Snapshots current block devices (to detect newly attached disks).
+#   2. POSTs the cell index to the callback URL to trigger hot-attach.
+#   3. Response 200: wait up to WAIT_TIMEOUT for a device with label REP_CACHE (pre-warmed).
+#   4. Response 202: wait up to WAIT_TIMEOUT for any NEW block device; if empty, format ext4 then mount.
+#   5. Non-2xx or no device in time: exit 0; rep uses ephemeral cache.
+#
+# Rep prefers /var/vcap/store/rep_download_cache when it is a mount point; otherwise
+# rep uses /var/vcap/data/rep/shared/garden/download_cache.
+#
+# Cell index: prefer jq under cfdot (VMs with minimal PATH), else /var/vcap/jobs/rep/config/cell_index
+# written by BOSH pre-start (see bosh_instance_index.erb fallback).
+# Optional jq for callback logging: cfdot path first, then PATH.
+# Uses tools typically on Diego cells: bash, blkid, mount, mkfs.ext4, ls, grep, curl, sleep; jq optional.
+#
 MOUNT_PATH="/var/vcap/store/rep_download_cache"
 CACHE_LABEL="REP_CACHE"
-WAIT_TIMEOUT=30
+WAIT_TIMEOUT=15
 CALLBACK_CONFIG="/var/vcap/jobs/rep/config/disk_attach_callback.env"
 CALLBACK_TIMEOUT=15
 OUT_DIR="/var/vcap/jobs/rep/attach-callback"
+CELL_INDEX_FILE="/var/vcap/jobs/rep/config/cell_index"
+CFDOT_JQ="/var/vcap/packages/cfdot/bin/jq"
+# Block device name pattern (same as below).
+DEV_PATTERNS="/dev/sd[a-z] /dev/sd[a-z][a-z] /dev/xvd[a-z]"
+# Flag file written (into /var/vcap/jobs/rep/config/ which is bind-mounted ro into the BPM
+# container) only after a successful mount, so rep inside the BPM namespace can find the path.
+REP_CACHE_PATH_FILE="/var/vcap/jobs/rep/config/rep_cache_path"
 
-# Create parent dirs so we can mount the device here (pre-start runs as root).
+# Create /var/vcap/store parent so mountpoint checks below work; do NOT create $MOUNT_PATH
+# here — if we create it before the disk is attached it will be an empty directory on sda2
+# (the root filesystem, device 8:2). BPM's additional_volume bind-mount would then give
+# the BPM container an empty directory whose device differs from the container rootfs (sdb2,
+# device 8:18), causing rep's isMountPoint() to return a false positive and store droplets
+# on the tiny root filesystem.  The directory is created just before the actual mount below.
 mkdir -p /var/vcap/store
-mkdir -p "$MOUNT_PATH"
 
-# If already mounted (e.g. from previous run), do nothing
+# If already mounted (e.g. from previous run), ensure the flag file exists and exit.
 if mountpoint -q "$MOUNT_PATH" 2>/dev/null; then
   echo "Mountpoint $MOUNT_PATH already exists. Exiting."
+  printf '%s\n' "$MOUNT_PATH" > "$REP_CACHE_PATH_FILE"
+  chmod 644 "$REP_CACHE_PATH_FILE"
   exit 0
 fi
 
-# Source callback config so we can call the attach endpoint when configured
+# Remove any stale flag file from a previous run where the disk is no longer mounted.
+rm -f "$REP_CACHE_PATH_FILE"
+
+# Source callback config so we can call the attach endpoint when configured.
+# Keep file 644 so vcap can source it when BPM runs this script as the job user.
 if [ -f "$CALLBACK_CONFIG" ]; then
-  chmod 600 "$CALLBACK_CONFIG" 2>/dev/null || true
+  [ "$(id -u)" = "0" ] && chmod 644 "$CALLBACK_CONFIG" 2>/dev/null || true
   set -a
   # shellcheck source=/dev/null
   source "$CALLBACK_CONFIG"
   set +a
 fi
 
-CELL_IDX=$(jq -r '.index' /var/vcap/bosh/spec.json 2>/dev/null || true)
+CELL_IDX=""
+if [ -x "$CFDOT_JQ" ]; then
+  CELL_IDX=$("$CFDOT_JQ" -r '.index // empty' /var/vcap/bosh/spec.json 2>/dev/null || true)
+fi
+if [[ -z "$CELL_IDX" ]] && [[ -f "$CELL_INDEX_FILE" ]]; then
+  CELL_IDX=$(tr -d '[:space:]' <"$CELL_INDEX_FILE" || true)
+fi
+
+# Optional jq for parsing last attach response (non-fatal if missing).
+JQ_BIN=""
+if [ -x "$CFDOT_JQ" ]; then
+  JQ_BIN=$CFDOT_JQ
+elif command -v jq >/dev/null 2>&1; then
+  JQ_BIN=$(command -v jq)
+fi
 
 if [[ -z "${DISK_ATTACH_CALLBACK_URL:-}" ]]; then
   echo "Disk attach callback URL is not set; Exiting."
   echo "Rep process will use the default ephemeral path /var/vcap/data/rep/shared/garden/download_cache for its operations."
+  rm -f "$REP_CACHE_PATH_FILE"
   exit 0
 fi
 
+# Snapshot current block device names (one per line) for "new device" detection (202 path).
+snapshot_block_devices() {
+  for b in $DEV_PATTERNS; do
+    [ -b "$b" ] && echo "$b"
+  done
+}
+
 # Trigger disk attach via HTTP callback (jumpbox or attach server)
+DEV=""
+HTTP_CODE=""
 if [ -n "${DISK_ATTACH_CALLBACK_URL:-}" ] && [ -n "$CELL_IDX" ]; then
+  PRE_CURL_DEVS=$(snapshot_block_devices | sort -u)
   mkdir -p "$OUT_DIR"
   chown vcap:vcap "$OUT_DIR"
   TS=$(date +%Y%m%d-%H%M%S)
   RESPONSE_FILE="${OUT_DIR}/attach-response-${TS}.json"
   STATUS_FILE="${OUT_DIR}/attach-status-${TS}.txt"
 
-  # Show last successful attach response if present (informational)
-  LATEST_RESPONSE=$(ls -t "${OUT_DIR}"/attach-response-*.json 2>/dev/null | head -1)
+  # Latest attach response by mtime (find avoids SC2012; filenames are script-controlled)
+  LATEST_RESPONSE=$(find "$OUT_DIR" -maxdepth 1 -name 'attach-response-*.json' -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -1 | cut -d' ' -f2-)
   if [ -n "$LATEST_RESPONSE" ] && [ -f "$LATEST_RESPONSE" ]; then
-    echo "The last successful disk attach response found in: $LATEST_RESPONSE"
-    BACKING_FILE=$(jq -r '.devices[0].backing.fileName // empty' "$LATEST_RESPONSE" 2>/dev/null || true)
-    if [ -n "$BACKING_FILE" ]; then
-      echo "The delta disk from the hot-attach is: $BACKING_FILE"
+    echo "Last attach response: $LATEST_RESPONSE"
+    BACKING_FILE=""
+    if [ -n "$JQ_BIN" ]; then
+      BACKING_FILE=$("$JQ_BIN" -r '.devices[0].backing.fileName // empty' "$LATEST_RESPONSE" 2>/dev/null || true)
     fi
+    [ -n "$BACKING_FILE" ] && echo "Delta disk: $BACKING_FILE"
   fi
 
   BASE_URL="${DISK_ATTACH_CALLBACK_URL%/}"
   DISK_NAME="rep_cache_${CELL_IDX}"
   ENDPOINT="${BASE_URL}/attach-disk/${DISK_NAME}"
-  echo "The curl request sent to disk attach controller: $ENDPOINT"
+  echo "Disk attach callback: $ENDPOINT"
 
   CURL_OPTS=(-s -w "%{http_code}" -o "$RESPONSE_FILE" --connect-timeout 5 --max-time "$CALLBACK_TIMEOUT" -X POST -H "Content-Type: application/json" -d "{\"index\": ${CELL_IDX}}")
   if [ -n "${DISK_ATTACH_CALLBACK_AUTH_KEY:-}" ]; then
@@ -67,66 +123,94 @@ if [ -n "${DISK_ATTACH_CALLBACK_URL:-}" ] && [ -n "$CELL_IDX" ]; then
   fi
   HTTP_CODE=$(curl "${CURL_OPTS[@]}" "$ENDPOINT" 2>/dev/null || echo "000")
   echo "$HTTP_CODE" > "$STATUS_FILE"
-  echo "The curl reply was written to: $RESPONSE_FILE"
+  echo "Response written to: $RESPONSE_FILE (HTTP $HTTP_CODE)"
 
-  if [[ "$HTTP_CODE" != "200" ]]; then
-    echo "The curl response was $HTTP_CODE. Exiting this script to continue normal operations."
-    echo "This means the REP process will fallback to using the ephemeral path /var/vcap/data/rep/shared/garden/download_cache as droplets cache."
+  if [[ "$HTTP_CODE" != "2"* ]]; then
+    echo "Callback returned $HTTP_CODE; rep will use ephemeral cache /var/vcap/data/rep/shared/garden/download_cache"
+    rm -f "$REP_CACHE_PATH_FILE"
     exit 0
   fi
 
-  echo "The persistent disk was attached to this VM successfully."
-  echo "Waiting for the block device to appear.."
+  echo "Disk attach accepted (HTTP $HTTP_CODE). Waiting for block device (up to ${WAIT_TIMEOUT}s).."
   sleep 2
 fi
 
-# Wait up to WAIT_TIMEOUT seconds for a suitable block device (by label or unlabeled unmounted)
-DEV=""
+# --- Resolve block device only when callback returned 2xx ---
+if [[ -z "${HTTP_CODE:-}" ]] || [[ "$HTTP_CODE" != "2"* ]]; then
+  exit 0
+fi
+
+# 200: pre-warmed disk with label REP_CACHE.
+# 2xx (e.g. 202): new empty disk; accept any NEW block device (not in PRE_CURL_DEVS).
+WAIT_FOR_LABEL=""
+[[ "$HTTP_CODE" == "200" ]] && WAIT_FOR_LABEL="1"
+
+PRE_CURL_DEVS="${PRE_CURL_DEVS:-}"
 DEADLINE=$(($(date +%s) + WAIT_TIMEOUT))
-while [ $(date +%s) -lt "$DEADLINE" ]; do
-  # Rescan SCSI so a newly attached disk appears
+while [ "$(date +%s)" -lt "$DEADLINE" ]; do
   for h in /sys/class/scsi_host/host*/scan; do
     echo "- - -" > "$h" 2>/dev/null || true
   done
   sleep 2
 
-  # Phase 1: find block device with label REP_CACHE
-  for b in /dev/sd[a-z] /dev/sd[a-z][a-z] /dev/xvd[a-z]; do
+  for b in $DEV_PATTERNS; do
     [ -b "$b" ] || continue
-    LABEL=$(blkid -o value -s LABEL "$b" 2>/dev/null || true)
-    if [ "$LABEL" = "$CACHE_LABEL" ]; then
+    if [ -n "$WAIT_FOR_LABEL" ]; then
+      LABEL=$(blkid -o value -s LABEL "$b" 2>/dev/null || true)
+      if [ "$LABEL" = "$CACHE_LABEL" ]; then
+        DEV="$b"
+        break 2
+      fi
+    else
+      # 202 path: must be a new device (not in pre-curl snapshot)
+      if echo "$PRE_CURL_DEVS" | grep -qFx "$b"; then
+        continue
+      fi
+      if grep -qE "^${b}([0-9]+)? " /proc/mounts 2>/dev/null; then
+        continue
+      fi
       DEV="$b"
       break 2
     fi
   done
-
-  # Phase 2: if no labeled device, use first unlabeled unmounted block device
-  if [ -z "$DEV" ]; then
-    for b in /dev/sd[a-z] /dev/sd[a-z][a-z] /dev/xvd[a-z]; do
-      [ -b "$b" ] || continue
-      LABEL=$(blkid -o value -s LABEL "$b" 2>/dev/null || true)
-      [ -n "$LABEL" ] && continue
-      grep -qE "^${b}([0-9]+)? " /proc/mounts 2>/dev/null && continue
-      DEV="$b"
-      break 2
-    done
-  fi
-
   [ -n "$DEV" ] && break
 done
 
 if [ -z "$DEV" ]; then
-  echo "No device with label $CACHE_LABEL or unlabeled unmounted disk found within ${WAIT_TIMEOUT}s; skipping mount."
-  echo "The disk could not be attached. Exiting here. The REP process will use its ephemeral path /var/vcap/data/rep/shared/garden/download_cache for caching droplets."
+  echo "No suitable block device within ${WAIT_TIMEOUT}s; rep will use ephemeral cache /var/vcap/data/rep/shared/garden/download_cache"
+  rm -f "$REP_CACHE_PATH_FILE"
   exit 0
 fi
 
-echo "Found block device $DEV"
+echo "Using block device: $DEV"
 
-# Mount only; do not format - disk may contain pre-warmed droplet cache
+# For 202 path: if device has no filesystem, format as ext4 (empty disk).
+if [ -z "$WAIT_FOR_LABEL" ]; then
+  TYPE=$(blkid -o value -s TYPE "$DEV" 2>/dev/null || true)
+  if [ -z "$TYPE" ]; then
+    echo "Formatting $DEV as ext4 (empty disk)."
+    if ! mkfs.ext4 -L "$CACHE_LABEL" -F "$DEV" 2>/dev/null; then
+      echo "mkfs.ext4 failed on $DEV; skipping mount." >&2
+      rm -f "$REP_CACHE_PATH_FILE"
+      exit 0
+    fi
+  fi
+fi
+
+# Create the mount directory only now — after the disk is confirmed ready.
+# This prevents BPM from bind-mounting an empty sda2 directory into the container
+# (which would cause rep's isMountPoint check to return a false positive).
+mkdir -p "$MOUNT_PATH"
+
 if mount "$DEV" "$MOUNT_PATH" 2>/dev/null; then
   chown -R vcap:vcap "$MOUNT_PATH"
-  echo "Mounted the rep cache disk to $MOUNT_PATH (rep will use this for droplet cache)."
+  echo "Mounted rep cache at $MOUNT_PATH."
+  # Write flag file so rep (inside the BPM container) knows the pre-warmed disk is ready.
+  # /var/vcap/jobs/rep/config is bind-mounted read-only into the BPM container so rep
+  # can read this file even though the BPM namespace does not otherwise see /var/vcap/store.
+  printf '%s\n' "$MOUNT_PATH" > "$REP_CACHE_PATH_FILE"
+  chmod 644 "$REP_CACHE_PATH_FILE"
 else
-  echo "Device $DEV could not be mounted (not a valid filesystem or not ready); skipping." >&2
+  echo "Mount of $DEV to $MOUNT_PATH failed; rep will use ephemeral cache." >&2
+  rm -f "$REP_CACHE_PATH_FILE"
 fi

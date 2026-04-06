@@ -1,6 +1,6 @@
 name: diego
-version: 2.130.0+cache-on-disk.3
-commit_hash: bb7a01039
+version: 2.130.0+cache-on-disk.7
+commit_hash: 7e440f24e
 uncommitted_changes: false
 jobs:
 - name: auctioneer

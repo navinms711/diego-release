@@ -1,9 +1,14 @@
 #!/bin/bash -e
 
 bin_dir=/var/vcap/jobs/rep/bin
+MOUNT_PATH="/var/vcap/store/rep_download_cache"
 
-# Mount pre-warmed cache disk at /var/vcap/store/rep_download_cache if present (must run before rep starts)
-$bin_dir/mount_rep_cache
+# Mount pre-warmed cache disk at /var/vcap/store/rep_download_cache if present (must run before rep starts).
+# Run as root via sudo (see rep-mount-rep-cache.sudoers); post-start removes that sudoers drop-in after rep is healthy.
+# If already mounted (e.g. monit restart after post-start removed sudoers), skip sudo entirely.
+if ! mountpoint -q "$MOUNT_PATH" 2>/dev/null; then
+  sudo -n "$bin_dir/mount_rep_cache" || "$bin_dir/mount_rep_cache" || true
+fi
 
 $bin_dir/set-rep-kernel-params
 

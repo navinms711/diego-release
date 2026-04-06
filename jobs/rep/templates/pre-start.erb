@@ -1,0 +1,54 @@
+#!/bin/bash -e
+# BOSH pre-start script (runs as root). Prepares disk attach callback, BOSH spec
+# readability for vcap, attach-callback dir, and passwordless sudo for mount_rep_cache
+# only (removed again after rep post-start succeeds).
+CALLBACK_ENV="/var/vcap/jobs/rep/config/disk_attach_callback.env"
+SPEC_JSON="/var/vcap/bosh/spec.json"
+BOSH_DIR="/var/vcap/bosh"
+ATTACH_CB_DIR="/var/vcap/jobs/rep/attach-callback"
+SUDOERS_SRC="/var/vcap/jobs/rep/config/rep-mount-rep-cache.sudoers"
+SUDOERS_DST="/etc/sudoers.d/rep-mount-rep-cache"
+CELL_INDEX_FILE="/var/vcap/jobs/rep/config/cell_index"
+BOSH_INSTANCE_INDEX_DEFAULT="/var/vcap/jobs/rep/config/bosh_instance_index"
+CFDOT_JQ="/var/vcap/packages/cfdot/bin/jq"
+
+[ -f "$CALLBACK_ENV" ] && chmod 644 "$CALLBACK_ENV"
+[ -f "$SPEC_JSON" ] && chmod 644 "$SPEC_JSON"
+# vcap must traverse /var/vcap/bosh to read spec.json for CELL_IDX in mount_rep_cache
+[ -d "$BOSH_DIR" ] && chmod 755 "$BOSH_DIR"
+
+# Persist BOSH instance index for mount_rep_cache when jq is missing from PATH (e.g. BPM hook).
+rm -f "$CELL_INDEX_FILE"
+IDX=""
+if [ -f "$SPEC_JSON" ]; then
+  if [ -x "$CFDOT_JQ" ]; then
+    IDX=$("$CFDOT_JQ" -r '.index // empty' "$SPEC_JSON" 2>/dev/null || true)
+  fi
+  if [ -z "$IDX" ] && command -v jq >/dev/null 2>&1; then
+    IDX=$(jq -r '.index // empty' "$SPEC_JSON" 2>/dev/null || true)
+  fi
+fi
+if [ -n "$IDX" ]; then
+  printf '%s\n' "$IDX" > "$CELL_INDEX_FILE"
+elif [ -f "$BOSH_INSTANCE_INDEX_DEFAULT" ]; then
+  cp "$BOSH_INSTANCE_INDEX_DEFAULT" "$CELL_INDEX_FILE"
+fi
+[ -f "$CELL_INDEX_FILE" ] && chmod 644 "$CELL_INDEX_FILE"
+
+mkdir -p "$ATTACH_CB_DIR"
+chown vcap:vcap "$ATTACH_CB_DIR"
+
+if [ -f "$SUDOERS_SRC" ]; then
+  install -m 0440 -o root -g root "$SUDOERS_SRC" "$SUDOERS_DST"
+  visudo -c -f "$SUDOERS_DST"
+fi
+
+# Patch statd_ctl to wait for rpcbind (port 111) before starting statd,
+# preventing the race where statd starts before rpcbind is ready and fails its
+# health check for 30s, adding ~95s to starting_jobs on every upgrade.
+# We patch statd_ctl (written at package-install time) rather than the monitrc
+# (written at starting-jobs time, after pre-start completes — too late to patch).
+STATD_CTL=$(find /var/vcap/jobs/*/bin -name "statd_ctl" 2>/dev/null | head -1)
+if [ -n "$STATD_CTL" ] && ! grep -q "nc -z 127.0.0.1 111" "$STATD_CTL"; then
+  sed -i '/^  start)$/a\    timeout 60 bash -c "while ! nc -z 127.0.0.1 111 2>/dev/null; do sleep 1; done" || true' "$STATD_CTL"
+fi

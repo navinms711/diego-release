@@ -42,6 +42,8 @@ i=1
 while [ $(( $(date +%s) - $timeout )) -lt $start ]; do
   if ping; then
     echo "$(date +%Y-%m-%dT%H:%M:%S.%sZ): Success!"
+    # Revoke vcap NOPASSWD for mount_rep_cache; restored on next BOSH pre-start (deploy / bosh restart instance).
+    rm -f /etc/sudoers.d/rep-mount-rep-cache
     exit 0
   fi
   echo "$(date +%Y-%m-%dT%H:%M:%S.%sZ): Attempt $i failed. Trying again..."

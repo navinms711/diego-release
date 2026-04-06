@@ -9,14 +9,16 @@
 //   - AUTH_KEY: pre-shared key; requests must send X-Attach-Token: <AUTH_KEY> (optional)
 //   - GOVC_*: vCenter credentials (GOVC_URL, GOVC_USERNAME, GOVC_PASSWORD, etc.)
 //   - ATTACH_DEVICE_INFO_LOG: if set, append govc device.info JSON for the attached disk to this file (default: attach-device-info.log)
-//   - ATTACH_HISTORY_FILE: optional path to NDJSON file of attach history; when set, short-form (rep_cache_N) uses the last backing_vmdk for that cell from this file instead of [DATASTORE] rep_cache_N.vmdk
+//   - ATTACH_HISTORY_FILE: optional NDJSON; short-form rep_cache_N uses last backing_vmdk for cell index N.
+//     Matches lines with cell_instance diego_cell/N or compute/N (6.x vs 10.x), or cell_index field (new writes).
 //
 // Route: POST /attach-disk/<disk-name-or-label>
 //
 //	e.g. POST /attach-disk/rep_cache_0
 //
 // Disk name is used as [DATASTORE] <disk-name>.vmdk. The numeric suffix is the BOSH instance
-// index; the server finds the row where index matches and instance group prefix matches to get VM_CID.
+// index; the server resolves VM CID from bosh instances by matching diego_cell/<uuid> (10.x) or
+// compute/<uuid> (6.x) for that index. Attach history matches diego_cell/N, compute/N, or cell_index.
 package main
 
 import (
@@ -76,6 +78,7 @@ type handler struct {
 // historyRecord is one line of ATTACH_HISTORY_FILE (NDJSON) for reading (lookup).
 type historyRecord struct {
 	CellInstance string `json:"cell_instance"`
+	CellIndex    string `json:"cell_index"` // optional: stable key across 6.x compute vs 10.x diego_cell
 	BackingVMDK  string `json:"backing_vmdk"`
 }
 
@@ -83,23 +86,42 @@ type historyRecord struct {
 type attachHistoryEntry struct {
 	Timestamp      string `json:"timestamp"`
 	BoshDeployment string `json:"bosh_deployment"`
-	CellInstance   string `json:"cell_instance"`
+	CellInstance   string `json:"cell_instance"` // e.g. diego_cell/0 — matched bosh instance group + index
+	CellIndex      string `json:"cell_index"`    // same numeric index; lookup works after 6→10 rename
 	VMCID          string `json:"vm_cid"`
 	DiskName       string `json:"disk_name"`
 	BlockDevice    string `json:"block_device"`
 	BackingVMDK    string `json:"backing_vmdk"`
 }
 
-// getLastBackingVMDKFromHistory returns the backing_vmdk from the last (most recent) line in the
-// history file where cell_instance == instanceGroup+"/"+cellIndex. Returns "" if the file is
-// missing, unreadable, or has no matching line.
-func getLastBackingVMDKFromHistory(historyPath, instanceGroup, cellIndex string) string {
+// historyMatchesCellIndex returns true if this history line applies to BOSH cell index cellIndex
+// (diego_cell/N and compute/N from 10.x vs 6.x, optional cell_index field, or configured instance group).
+func historyMatchesCellIndex(rec historyRecord, cellIndex string, configuredGroup string) bool {
+	if rec.BackingVMDK == "" {
+		return false
+	}
+	if rec.CellIndex != "" && rec.CellIndex == cellIndex {
+		return true
+	}
+	for _, prefix := range []string{"diego_cell/", "compute/"} {
+		if rec.CellInstance == prefix+cellIndex {
+			return true
+		}
+	}
+	if configuredGroup != "" && rec.CellInstance == configuredGroup+"/"+cellIndex {
+		return true
+	}
+	return false
+}
+
+// getLastBackingVMDKFromHistory returns the backing_vmdk from the last line matching cell index
+// (diego_cell/N, compute/N, cell_index, or configured instance group).
+func getLastBackingVMDKFromHistory(historyPath, cellIndex string, configuredInstanceGroup string) string {
 	f, err := os.Open(historyPath)
 	if err != nil {
 		return ""
 	}
 	defer f.Close()
-	target := instanceGroup + "/" + cellIndex
 	var last string
 	s := bufio.NewScanner(f)
 	for s.Scan() {
@@ -111,7 +133,7 @@ func getLastBackingVMDKFromHistory(historyPath, instanceGroup, cellIndex string)
 		if err := json.Unmarshal([]byte(line), &rec); err != nil {
 			continue
 		}
-		if rec.CellInstance == target && rec.BackingVMDK != "" {
+		if historyMatchesCellIndex(rec, cellIndex, configuredInstanceGroup) {
 			last = rec.BackingVMDK
 		}
 	}
@@ -136,8 +158,8 @@ func backingVMDKFromDeviceInfo(infoJSON []byte) string {
 	return out.Devices[0].Backing.FileName
 }
 
-// appendAttachHistory appends one NDJSON line to ATTACH_HISTORY_FILE after a successful attach.
-func appendAttachHistory(historyPath, deployment, instanceGroup, cellIndex, vmCID, deviceName, diskPath string, infoJSON []byte) error {
+// appendAttachHistory appends one NDJSON line. matchedInstancePrefix is diego_cell or compute from bosh row.
+func appendAttachHistory(historyPath, deployment, matchedInstancePrefix, cellIndex, vmCID, deviceName, diskPath string, infoJSON []byte) error {
 	if historyPath == "" {
 		return nil
 	}
@@ -157,7 +179,8 @@ func appendAttachHistory(historyPath, deployment, instanceGroup, cellIndex, vmCI
 	entry := attachHistoryEntry{
 		Timestamp:      time.Now().Format("20060102-150405"),
 		BoshDeployment: deployment,
-		CellInstance:   instanceGroup + "/" + cellIndex,
+		CellInstance:   matchedInstancePrefix + "/" + cellIndex,
+		CellIndex:      cellIndex,
 		VMCID:          vmCID,
 		DiskName:       "rep_cache_" + cellIndex + ".vmdk",
 		BlockDevice:    deviceName,
@@ -197,20 +220,23 @@ func (h *handler) attachDisk(w http.ResponseWriter, r *http.Request) {
 
 	var cellIndex string
 	var diskPath string
+	usedDefaultEmptyDisk := false
 
 	if matches := diskNameRe.FindStringSubmatch(diskName); matches != nil {
 		// Short form: rep_cache_<index>
 		cellIndex = matches[1]
 		if path := os.Getenv("ATTACH_HISTORY_FILE"); path != "" {
-			if last := getLastBackingVMDKFromHistory(path, h.instanceGroup, cellIndex); last != "" {
+			if last := getLastBackingVMDKFromHistory(path, cellIndex, h.instanceGroup); last != "" {
 				diskPath = last
 				log.Printf("[attach] short-form %s: using backing_vmdk from history: %s", diskName, diskPath)
 			} else {
 				diskPath = "[" + h.datastore + "] " + diskName + ".vmdk"
-				log.Printf("[attach] short-form %s: no history match for %s/%s (or file unreadable), using default: %s", diskName, h.instanceGroup, cellIndex, diskPath)
+				usedDefaultEmptyDisk = true
+				log.Printf("[attach] short-form %s: no history match for cell index %s (diego_cell/compute/cell_index), using default: %s", diskName, cellIndex, diskPath)
 			}
 		} else {
 			diskPath = "[" + h.datastore + "] " + diskName + ".vmdk"
+			usedDefaultEmptyDisk = true
 			log.Printf("[attach] short-form %s: ATTACH_HISTORY_FILE not set, using default: %s", diskName, diskPath)
 		}
 	} else if strings.HasPrefix(diskName, "[") && strings.Contains(diskName, "] ") && strings.HasSuffix(diskName, ".vmdk") {
@@ -241,17 +267,18 @@ func (h *handler) attachDisk(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Resolve VM CID: bosh instances --details --json has "index" and "instance" (e.g. compute/<uuid>); match on index and instance group prefix.
-	vmCID, err := h.getVMCID(cellIndex)
+	// Resolve VM CID: try diego_cell (10.x) then compute (6.x) then configured BOSH_INSTANCE_GROUP.
+	vmCID, matchedPrefix, err := h.getVMCID(cellIndex)
 	if err != nil {
 		log.Printf("get VM CID for index %s: %v", cellIndex, err)
 		http.Error(w, fmt.Sprintf("failed to get VM CID: %v", err), http.StatusInternalServerError)
 		return
 	}
 	if vmCID == "" {
-		http.Error(w, "VM CID not found for index "+cellIndex+" (instance group "+h.instanceGroup+")", http.StatusNotFound)
+		http.Error(w, "VM CID not found for index "+cellIndex+" (tried diego_cell, compute, "+h.instanceGroup+")", http.StatusNotFound)
 		return
 	}
+	log.Printf("[attach] resolved VM CID for index %s via instance prefix %s", cellIndex, matchedPrefix)
 
 	// govc vm.disk.attach -vm=$VM_CID -disk="[datastore] disk_name.vmdk" or full path
 	log.Printf("[attach] running: govc vm.disk.attach -vm=%s -disk=%q", vmCID, diskPath)
@@ -281,24 +308,48 @@ func (h *handler) attachDisk(w http.ResponseWriter, r *http.Request) {
 
 	// Append to ATTACH_HISTORY_FILE (NDJSON) for future short-form lookups
 	if historyPath := os.Getenv("ATTACH_HISTORY_FILE"); historyPath != "" {
-		if err := appendAttachHistory(historyPath, h.deployment, h.instanceGroup, cellIndex, vmCID, deviceName, diskPath, infoJSON); err != nil {
+		if err := appendAttachHistory(historyPath, h.deployment, matchedPrefix, cellIndex, vmCID, deviceName, diskPath, infoJSON); err != nil {
 			log.Printf("append attach history: %v", err)
 		} else {
-			log.Printf("[attach] appended to %s for %s/%s", historyPath, h.instanceGroup, cellIndex)
+			log.Printf("[attach] appended to %s for %s/%s (cell_index=%s)", historyPath, matchedPrefix, cellIndex, cellIndex)
 		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
+	if usedDefaultEmptyDisk {
+		w.WriteHeader(http.StatusAccepted) // 202: cell will treat as new empty disk, format ext4 and mount
+	} else {
+		w.WriteHeader(http.StatusOK) // 200: pre-warmed disk with REP_CACHE label
+	}
 	_, _ = w.Write(infoJSON)
 }
 
-func (h *handler) getVMCID(cellIndex string) (string, error) {
+// instanceGroupPrefixes returns bosh instance name prefixes to try, in order (10.x then 6.x legacy).
+func instanceGroupPrefixes(configured string) []string {
+	seen := map[string]struct{}{}
+	var order []string
+	add := func(p string) {
+		if p == "" {
+			return
+		}
+		if _, ok := seen[p]; ok {
+			return
+		}
+		seen[p] = struct{}{}
+		order = append(order, p)
+	}
+	add("diego_cell")
+	add("compute")
+	add(configured)
+	return order
+}
+
+func (h *handler) getVMCID(cellIndex string) (vmCID string, matchedPrefix string, err error) {
 	cmd := exec.Command("bosh", "-d", h.deployment, "instances", "--details", "--json")
 	cmd.Env = os.Environ()
 	out, err := cmd.Output()
 	if err != nil {
-		return "", fmt.Errorf("bosh instances: %w", err)
+		return "", "", fmt.Errorf("bosh instances: %w", err)
 	}
 	var result struct {
 		Tables []struct {
@@ -310,17 +361,19 @@ func (h *handler) getVMCID(cellIndex string) (string, error) {
 		} `json:"Tables"`
 	}
 	if err := json.Unmarshal(out, &result); err != nil {
-		return "", fmt.Errorf("parse bosh json: %w", err)
+		return "", "", fmt.Errorf("parse bosh json: %w", err)
 	}
-	prefix := h.instanceGroup + "/"
-	for _, t := range result.Tables {
-		for _, row := range t.Rows {
-			if row.Index == cellIndex && strings.HasPrefix(row.Instance, prefix) {
-				return row.VMCID, nil
+	for _, ig := range instanceGroupPrefixes(h.instanceGroup) {
+		prefix := ig + "/"
+		for _, t := range result.Tables {
+			for _, row := range t.Rows {
+				if row.Index == cellIndex && strings.HasPrefix(row.Instance, prefix) && row.VMCID != "" {
+					return row.VMCID, ig, nil
+				}
 			}
 		}
 	}
-	return "", nil
+	return "", "", nil
 }
 
 func (h *handler) attachDiskToVM(vmCID, diskPath string) error {

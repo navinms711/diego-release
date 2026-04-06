@@ -1,5 +1,5 @@
 check process rep
   with pidfile /var/vcap/sys/run/bpm/rep/rep.pid
-  start program "/var/vcap/jobs/bpm/bin/bpm start rep"
+  start program "/var/vcap/jobs/bpm/bin/bpm start rep" with timeout 120 seconds
   stop program "/var/vcap/jobs/bpm/bin/bpm stop rep"
   group vcap

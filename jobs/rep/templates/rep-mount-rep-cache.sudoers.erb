@@ -1,0 +1,6 @@
+# Managed by BOSH rep job — removed after rep post-start succeeds.
+# Restored on each BOSH pre-start (deploy / bosh restart instance).
+# Allows vcap to run only mount_rep_cache as root for SCSI rescan, blkid, mount.
+Defaults!/var/vcap/jobs/rep/bin/mount_rep_cache !requiretty
+
+vcap ALL=(root) NOPASSWD: /var/vcap/jobs/rep/bin/mount_rep_cache
