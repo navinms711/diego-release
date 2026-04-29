@@ -1,68 +1,68 @@
 [submodule "src/code.cloudfoundry.org/bbs"]
 	path = src/code.cloudfoundry.org/bbs
-	url = https://github.com/cloudfoundry/bbs
+	url = https://github.com/navinms711/bbs
 	branch = main
 [submodule "src/code.cloudfoundry.org/cacheddownloader"]
 	path = src/code.cloudfoundry.org/cacheddownloader
-	url = https://github.com/cloudfoundry/cacheddownloader
+	url = https://github.com/navinms711/cacheddownloader
 	branch = main
 [submodule "src/code.cloudfoundry.org/executor"]
 	path = src/code.cloudfoundry.org/executor
-	url = https://github.com/cloudfoundry/executor
+	url = https://github.com/navinms711/executor
 	branch = main
 [submodule "src/code.cloudfoundry.org/locket"]
 	path = src/code.cloudfoundry.org/locket
-	url = https://github.com/cloudfoundry/locket
+	url = https://github.com/navinms711/locket
 	branch = main
 [submodule "src/code.cloudfoundry.org/rep"]
 	path = src/code.cloudfoundry.org/rep
-	url = https://github.com/cloudfoundry/rep
+	url = https://github.com/navinms711/rep
 	branch = main
 [submodule "src/code.cloudfoundry.org/buildpackapplifecycle"]
 	path = src/code.cloudfoundry.org/buildpackapplifecycle
-	url = https://github.com/cloudfoundry/buildpackapplifecycle
+	url = https://github.com/navinms711/buildpackapplifecycle
 	branch = main
 [submodule "src/code.cloudfoundry.org/garden"]
 	path = src/garden
-	url = https://github.com/cloudfoundry/garden
+	url = https://github.com/navinms711/garden
 [submodule "src/code.cloudfoundry.org/routing-info"]
 	path = src/code.cloudfoundry.org/routing-info
-	url = https://github.com/cloudfoundry-incubator/routing-info
+	url = https://github.com/navinms711/routing-info
 	branch = main
 [submodule "src/code.cloudfoundry.org/routing-api"]
 	path = src/code.cloudfoundry.org/routing-api
-	url = https://github.com/cloudfoundry-incubator/routing-api
+	url = https://github.com/navinms711/routing-api
 	branch = main
 [submodule "src/code.cloudfoundry.org/guardian"]
 	path = src/guardian
-	url = https://github.com/cloudfoundry/guardian
+	url = https://github.com/navinms711/guardian
 	branch = main
 [submodule "src/code.cloudfoundry.org/idmapper"]
 	path = src/idmapper
-	url = https://github.com/cloudfoundry/idmapper
+	url = https://github.com/navinms711/idmapper
 [submodule "src/code.cloudfoundry.org/grootfs"]
 	path = src/grootfs
-	url = https://github.com/cloudfoundry/grootfs
+	url = https://github.com/navinms711/grootfs
 [submodule "src/code.cloudfoundry.org/credhub-cli"]
 	path = src/code.cloudfoundry.org/credhub-cli
-	url = https://github.com/cloudfoundry-incubator/credhub-cli/
+	url = https://github.com/navinms711/credhub-cli/
 [submodule "src/garden"]
 	path = src/garden
-	url = https://github.com/cloudfoundry/garden
+	url = https://github.com/navinms711/garden
 	branch = main
 [submodule "src/guardian"]
 	path = src/guardian
-	url = https://github.com/cloudfoundry/guardian
+	url = https://github.com/navinms711/guardian
 	branch = main
 [submodule "src/idmapper"]
 	path = src/idmapper
-	url = https://github.com/cloudfoundry/idmapper
+	url = https://github.com/navinms711/idmapper
 	branch = main
 [submodule "src/grootfs"]
 	path = src/grootfs
-	url = https://github.com/cloudfoundry/grootfs
+	url = https://github.com/navinms711/grootfs
 	branch = main
 [submodule "src/cnbapplifecycle"]
 	path = src/cnbapplifecycle
-	url = https://github.com/cloudfoundry/cnbapplifecycle
+	url = https://github.com/navinms711/cnbapplifecycle
 	branch = main
