@@ -8,13 +8,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORKSPACE="$(cd "$SCRIPT_DIR/.." && pwd)"
 INPUT_TILE="${1:-/tmp/cf-10.2.7-build.2.pivotal}"
 OUTPUT_TILE="${2:-$WORKSPACE/cf-10.2.7-freshness-droplet-cache-build.26.pivotal}"
-# zip runs with cwd=TILE_EXTRACT; a relative OUTPUT_TILE would be created inside it and removed by cleanup.
-if [[ "$INPUT_TILE" != /* ]]; then
-  INPUT_TILE="$SCRIPT_DIR/$INPUT_TILE"
-fi
-if [[ "$OUTPUT_TILE" != /* ]]; then
-  OUTPUT_TILE="$SCRIPT_DIR/$OUTPUT_TILE"
-fi
 METADATA_DEV14="$WORKSPACE/upgrade-6.0.9-to-10.2.7/metadata-10.2.7-dev14.yml"
 
 # --- FIX 1: Point to build.26 ---
