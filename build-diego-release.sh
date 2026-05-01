@@ -11,11 +11,43 @@
 #       Builds with bosh --timestamp-version (unique dev version each run).
 #   ./build-diego-release.sh <diego-release-version> [tarball-name.tgz]
 #       Fixed semver; optional second arg sets tarball path (default diego-<version>.tgz).
+#       If that dev version was built before, removes dev_releases/diego/diego-<ver>.yml
+#       and prunes dev_releases/diego/index.yml so bosh can recreate it.
+#       Set SKIP_DEV_RELEASE_PRUNE=1 to skip that step (will fail if version still exists).
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
+
+# Remove prior dev release record so bosh create-release --version=X can run again.
+prune_dev_release_record() {
+  local ver="$1"
+  local yml="dev_releases/diego/diego-${ver}.yml"
+  local idx="dev_releases/diego/index.yml"
+  if [[ -f "$yml" ]]; then
+    rm -f "$yml"
+    echo "Removed prior dev release manifest: $yml"
+  fi
+  [[ -f "$idx" ]] || return 0
+  VERSION="$ver" ruby <<'RUBY'
+require "yaml"
+version = ENV.fetch("VERSION")
+path = "dev_releases/diego/index.yml"
+exit 0 unless File.exist?(path)
+data = YAML.load_file(path)
+exit 0 unless data.is_a?(Hash) && data["builds"].is_a?(Hash)
+before = data["builds"].size
+data["builds"] = data["builds"].reject do |_uuid, meta|
+  meta.is_a?(Hash) && meta["version"] == version
+end
+removed = before - data["builds"].size
+if removed.positive?
+  File.write(path, YAML.dump(data))
+  puts "Pruned #{removed} entr#{removed == 1 ? 'y' : 'ies'} from #{path} for version #{version}"
+end
+RUBY
+}
 
 if [[ -n "${1:-}" ]]; then
   VERSION="$1"
@@ -27,6 +59,10 @@ if [[ -n "${1:-}" ]]; then
     echo "Tarball already exists: $TARBALL"
     echo "Remove it or pass a different tarball name as arg 2. sha1: $(sha1sum "$TARBALL" | awk '{print $1}')"
     exit 0
+  fi
+  if [[ -z "${SKIP_DEV_RELEASE_PRUNE:-}" ]]; then
+    echo "Pruning any existing dev release record for $VERSION (bosh refuses duplicate dev versions) ..."
+    prune_dev_release_record "$VERSION"
   fi
   echo "Building Diego release $VERSION (ensure blobs: bosh sync-blobs) ..."
   bosh create-release --force --version="$VERSION" --tarball="$TARBALL"
