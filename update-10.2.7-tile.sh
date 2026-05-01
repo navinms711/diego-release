@@ -7,9 +7,15 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORKSPACE="$(cd "$SCRIPT_DIR/.." && pwd)"
 INPUT_TILE="${1:-/tmp/cf-10.2.7-build.2.pivotal}"
 OUTPUT_TILE="${2:-$WORKSPACE/cf-10.2.7-freshness-droplet-cache-build.25.pivotal}"
-METADATA_DEV14="$WORKSPACE/upgrade-6.0.9-to-10.2.7/metadata-10.2.7-dev14.yml"
-DIEGO_TGZ="$SCRIPT_DIR/diego-2.130.0+cache-on-disk.25.tgz"
-NFS_TGZ="/tmp/nfs-volume-dev.tgz"   # <--- Path to your new dev release
+# Prefer metadata next to the upgrade workspace (e.g. upgrade-6.0.20-to-10.2.7/), else legacy path.
+METADATA_DEV14="$WORKSPACE/metadata-10.2.7-dev14.yml"
+[[ -f "$METADATA_DEV14" ]] || METADATA_DEV14="$WORKSPACE/upgrade-6.0.9-to-10.2.7/metadata-10.2.7-dev14.yml"
+# Override with DIEGO_TGZ=/path/to.tgz; else newest navinms711 dev tarball in diego-release, else pinned name.
+if [[ -z "${DIEGO_TGZ:-}" ]]; then
+  DIEGO_TGZ="$(ls -t "$SCRIPT_DIR"/diego-navinms711-develop-*.tgz 2>/dev/null | head -1 || true)"
+fi
+[[ -n "${DIEGO_TGZ:-}" && -f "$DIEGO_TGZ" ]] || DIEGO_TGZ="$SCRIPT_DIR/diego-2.130.0+cache-on-disk.25.tgz"
+NFS_TGZ="${NFS_TGZ:-/tmp/nfs-volume-dev.tgz}"
 OUTPUT_DIR="$(dirname "$OUTPUT_TILE")"
 export TMPDIR="${OUTPUT_DIR}"
 TILE_EXTRACT="${OUTPUT_DIR}/.tile-extract-$$"
