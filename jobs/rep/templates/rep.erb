@@ -22,5 +22,32 @@ set +e
 set -e
 <% end %>
 
+# Colocated agents: monit/BOSH start order does not wait for listen-ready. Rep can exit if
+# loggregator-agent (v2 API, default 3458) or Silk (23954) is not accepting yet; wait briefly
+# then proceed (matches experiments on devperf opsman ~/diego-release).
+echo "$(date) [rep] Waiting for loggregator-agent on port 3458..." >> /var/vcap/sys/log/rep/rep.stdout.log
+for i in {1..60}; do
+  if nc -z 127.0.0.1 3458 2>/dev/null; then
+    echo "$(date) [rep] Loggregator is UP after ${i}s. Proceeding." >> /var/vcap/sys/log/rep/rep.stdout.log
+    break
+  fi
+  if [ "$i" -eq 60 ]; then
+    echo "$(date) [rep] WARNING: Loggregator not ready after 60s, starting rep anyway" >> /var/vcap/sys/log/rep/rep.stdout.log
+  fi
+  sleep 1
+done
+
+echo "$(date) [rep] Waiting for Silk Daemon on port 23954..." >> /var/vcap/sys/log/rep/rep.stdout.log
+for i in {1..60}; do
+  if nc -z 127.0.0.1 23954 2>/dev/null; then
+    echo "$(date) [rep] Silk Daemon is UP after ${i}s. Proceeding." >> /var/vcap/sys/log/rep/rep.stdout.log
+    break
+  fi
+  if [ "$i" -eq 60 ]; then
+    echo "$(date) [rep] WARNING: Silk Daemon not ready after 60s, starting rep anyway" >> /var/vcap/sys/log/rep/rep.stdout.log
+  fi
+  sleep 0.5
+done
+
 exec /var/vcap/packages/rep/bin/rep \
       -config=$conf_dir/rep.json ${zone_flag}
