@@ -15,6 +15,8 @@
 #       dev_releases/diego/diego-<ver>.yml (keeps the file) and prunes that version from
 #       dev_releases/diego/index.yml so bosh can recreate it.
 #       Set SKIP_DEV_RELEASE_PRUNE=1 to skip that step (will fail if version still exists).
+#       If the default tarball path already exists, it is removed so the release can rebuild
+#       (set KEEP_EXISTING_TARBALL=1 to keep the old file and exit instead).
 
 set -euo pipefail
 
@@ -66,9 +68,14 @@ if [[ -n "${1:-}" ]]; then
   echo "VERSION    = $VERSION (explicit)"
   echo "TARBALL    = $TARBALL"
   if [[ -f "$TARBALL" ]]; then
-    echo "Tarball already exists: $TARBALL"
-    echo "Remove it or pass a different tarball name as arg 2. sha1: $(sha1sum "$TARBALL" | awk '{print $1}')"
-    exit 0
+    if [[ -n "${KEEP_EXISTING_TARBALL:-}" ]]; then
+      echo "Tarball already exists: $TARBALL"
+      echo "sha1: $(sha1sum "$TARBALL" | awk '{print $1}')"
+      echo "Unset KEEP_EXISTING_TARBALL or remove the file to rebuild, or pass a different name as arg 2."
+      exit 0
+    fi
+    echo "Removing existing tarball for rebuild: $TARBALL (was $(sha1sum "$TARBALL" | awk '{print $1}'))"
+    rm -f "$TARBALL"
   fi
   if [[ -z "${SKIP_DEV_RELEASE_PRUNE:-}" ]]; then
     echo "Pruning any existing dev release record for $VERSION (bosh refuses duplicate dev versions) ..."
