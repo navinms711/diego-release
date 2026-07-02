@@ -48,7 +48,7 @@ func (c *Cell) State() models.CellState {
 	return c.state
 }
 
-func (c *Cell) ScoreForLRP(lrp *models.SchedulingLRP, startingContainerWeight, binPackFirstFitWeight float64) (float64, error) {
+func (c *Cell) ScoreForLRP(lrp *models.SchedulingLRP, startingContainerWeight, binPackFirstFitWeight, freshnessWeight float64, isFreshCell bool) (float64, error) {
 	proxiedLRP := models.Resource{
 		MemoryMB: lrp.Resource.MemoryMB + int32(c.state.ProxyMemoryAllocationMB),
 		DiskMB:   lrp.Resource.DiskMB,
@@ -73,15 +73,29 @@ func (c *Cell) ScoreForLRP(lrp *models.SchedulingLRP, startingContainerWeight, b
 
 	indexScore := float64(c.Index) * binPackFirstFitWeight
 
+	// Freshness bonus: prefer cells that are among the N most recently started,
+	// where N = number of currently evacuating cells. This directs LRPs from
+	// evacuating cells toward cells that have already completed the current
+	// rolling upgrade batch, reducing rebouncing. Self-disables (bonus stays 0)
+	// when no cells are evacuating or freshnessWeight is 0.
+	freshnessBonus := 0.0
+	if isFreshCell && freshnessWeight > 0 {
+		freshnessBonus = -freshnessWeight
+	}
+
+	score := resourceScore + float64(localityScore) + indexScore + freshnessBonus
+
 	c.logger.Debug("score-for-lrp", lager.Data{
-		"cell-guid":      c.Guid,
-		"cell-index":     c.state.CellIndex,
-		"locality-score": localityScore,
-		"resource-score": resourceScore,
-		"index-score":    indexScore,
-		"score":          resourceScore + float64(localityScore) + indexScore,
+		"cell-guid":       c.Guid,
+		"cell-index":      c.state.CellIndex,
+		"locality-score":  localityScore,
+		"resource-score":  resourceScore,
+		"index-score":     indexScore,
+		"is-fresh-cell":   isFreshCell,
+		"freshness-bonus": freshnessBonus,
+		"score":           score,
 	})
-	return resourceScore + float64(localityScore) + indexScore, nil
+	return score, nil
 }
 
 func (c *Cell) ScoreForTask(task *models.SchedulingTask, startingContainerWeight float64) (float64, error) {

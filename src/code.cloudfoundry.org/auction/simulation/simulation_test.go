@@ -221,6 +221,8 @@ var _ = Describe("Auction", func() {
 							weight,
 							0.5,
 							defaultMaxContainerStartCount,
+							0,
+							0.0,
 						)
 						runnerProcess = ifrit.Invoke(runner)
 					})

@@ -146,7 +146,7 @@ var _ = Describe("ZoneBuilder", func() {
 	})
 
 	It("fetches state by calling each client", func() {
-		zones := auctionrunner.FetchStateAndBuildZones(logger, workPool, clients, metricEmitter, binPackFirstFitWeight)
+		zones, _ := auctionrunner.FetchStateAndBuildZones(logger, workPool, clients, metricEmitter, binPackFirstFitWeight)
 		Expect(zones).To(HaveLen(2))
 
 		cells := map[string]*auctionrunner.Cell{}
@@ -181,7 +181,7 @@ var _ = Describe("ZoneBuilder", func() {
 		})
 
 		It("does not include them in the map", func() {
-			zones := auctionrunner.FetchStateAndBuildZones(logger, workPool, clients, metricEmitter, binPackFirstFitWeight)
+			zones, _ := auctionrunner.FetchStateAndBuildZones(logger, workPool, clients, metricEmitter, binPackFirstFitWeight)
 			Expect(zones).To(HaveLen(2))
 
 			cells := zones["the-zone"]
@@ -207,7 +207,7 @@ var _ = Describe("ZoneBuilder", func() {
 		})
 
 		It("does not include that cell in the map", func() {
-			zones := auctionrunner.FetchStateAndBuildZones(logger, workPool, clients, metricEmitter, binPackFirstFitWeight)
+			zones, _ := auctionrunner.FetchStateAndBuildZones(logger, workPool, clients, metricEmitter, binPackFirstFitWeight)
 			Expect(zones).To(HaveLen(2))
 
 			cells := zones["the-zone"]
@@ -225,7 +225,7 @@ var _ = Describe("ZoneBuilder", func() {
 			})
 
 			It("includes that cell in the map", func() {
-				zones := auctionrunner.FetchStateAndBuildZones(logger, workPool, clients, metricEmitter, binPackFirstFitWeight)
+				zones, _ := auctionrunner.FetchStateAndBuildZones(logger, workPool, clients, metricEmitter, binPackFirstFitWeight)
 				Expect(zones).To(HaveLen(2))
 
 				cells := zones["the-zone"]
@@ -256,7 +256,7 @@ var _ = Describe("ZoneBuilder", func() {
 		})
 
 		It("does not include the client in the map", func() {
-			zones := auctionrunner.FetchStateAndBuildZones(logger, workPool, clients, metricEmitter, binPackFirstFitWeight)
+			zones, _ := auctionrunner.FetchStateAndBuildZones(logger, workPool, clients, metricEmitter, binPackFirstFitWeight)
 			Expect(zones).To(HaveLen(2))
 
 			cells := zones["the-zone"]
@@ -269,7 +269,7 @@ var _ = Describe("ZoneBuilder", func() {
 		})
 
 		It("it emits metrics for the failure", func() {
-			zones := auctionrunner.FetchStateAndBuildZones(logger, workPool, clients, metricEmitter, binPackFirstFitWeight)
+			zones, _ := auctionrunner.FetchStateAndBuildZones(logger, workPool, clients, metricEmitter, binPackFirstFitWeight)
 			Expect(zones).To(HaveLen(2))
 			Expect(metricEmitter.FailedCellStateRequestCallCount()).To(Equal(1))
 		})
@@ -304,7 +304,7 @@ var _ = Describe("ZoneBuilder", func() {
 
 	It("separately orders cells in each zone by cell index when bin pack first-fit weight is provided", func() {
 		binPackFirstFitWeight := 1.0
-		zones := auctionrunner.FetchStateAndBuildZones(logger, workPool, clients, metricEmitter, binPackFirstFitWeight)
+		zones, _ := auctionrunner.FetchStateAndBuildZones(logger, workPool, clients, metricEmitter, binPackFirstFitWeight)
 
 		assertCellIndicesWithOrder(zones["the-zone"], []int{0, 1})
 		assertCellIDs(zones["the-zone"], []string{"A", "B"})
@@ -314,7 +314,7 @@ var _ = Describe("ZoneBuilder", func() {
 	})
 
 	It("keeps the original cell indices intact when bin pack first-fit weight is not provided", func() {
-		zones := auctionrunner.FetchStateAndBuildZones(logger, workPool, clients, metricEmitter, binPackFirstFitWeight)
+		zones, _ := auctionrunner.FetchStateAndBuildZones(logger, workPool, clients, metricEmitter, binPackFirstFitWeight)
 
 		assertCellIndices(zones["the-zone"], []int{0, 2})
 		assertCellIndices(zones["other-zone"], []int{5})
