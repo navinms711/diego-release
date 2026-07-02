@@ -54,6 +54,12 @@ properties:
   diego.auctioneer.starting_container_count_maximum:
     description: "Maximum number of inflight container starts allowed globally. Value of 0 or less indicates no limit."
     default: 0
+  diego.auctioneer.freshness_weight:
+    description: "Scoring bonus for recently started cells during placement. When cells are evacuating (e.g. during rolling upgrades), the auctioneer gives this bonus to the N most recently started cells, where N equals the number of currently evacuating cells. This directs evacuated LRPs toward cells that have already completed the current upgrade batch, reducing repeated rescheduling (rebouncing). A value of 0 disables the feature; the auctioneer also does not apply this bonus at all when no cells are evacuating, so there is no effect on placement during normal operation."
+    default: 50.0
+  diego.auctioneer.fresh_lrps_per_cell:
+    description: "Maximum number of LRPs that receive the freshness_weight bonus when placed on a single fresh cell (see diego.auctioneer.freshness_weight). Once this limit is reached for a cell, subsequent LRPs are placed via normal resource-based scoring instead, preventing a fresh cell from being overwhelmed with concurrent container starts. A value of 0 or less means no limit (every LRP placed during the upgrade window may receive the bonus)."
+    default: 5
 
   diego.auctioneer.bbs.api_location:
     description: "Address to the BBS Server"

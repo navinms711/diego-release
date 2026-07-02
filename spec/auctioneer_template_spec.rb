@@ -61,5 +61,21 @@ describe 'auctioneer' do
         end.to raise_error(/The locket client keepalive time property should not be larger than the timeout/)
       end
     end
+
+    context 'freshness properties' do
+      it 'renders the defaults when unset' do
+        parsed = JSON.parse(rendered_template)
+        expect(parsed['freshness_weight']).to eq(50.0)
+        expect(parsed['fresh_lrps_per_cell']).to eq(5)
+      end
+
+      it 'renders operator-supplied values' do
+        deployment_manifest_fragment['diego']['auctioneer']['freshness_weight'] = 75.0
+        deployment_manifest_fragment['diego']['auctioneer']['fresh_lrps_per_cell'] = 10
+        parsed = JSON.parse(rendered_template)
+        expect(parsed['freshness_weight']).to eq(75.0)
+        expect(parsed['fresh_lrps_per_cell']).to eq(10)
+      end
+    end
   end
 end
