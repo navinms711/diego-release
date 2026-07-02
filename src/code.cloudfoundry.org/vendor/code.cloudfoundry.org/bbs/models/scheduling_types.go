@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"sort"
 	"strings"
+	"time"
 )
 
 const InternalRouter = "internal-router"
@@ -228,6 +229,11 @@ type CellState struct {
 	PlacementTags           []string
 	OptionalPlacementTags   []string
 	ProxyMemoryAllocationMB int
+	// StartTime is when the rep process on this cell started. Used by the
+	// auctioneer's freshness scoring to identify recently-started (e.g.
+	// just-upgraded) cells; zero value means the reporting rep predates this
+	// field or does not populate it.
+	StartTime time.Time `json:"start_time"`
 }
 
 func NewCellState(

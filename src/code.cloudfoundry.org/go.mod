@@ -227,3 +227,7 @@ require (
 	gorm.io/driver/postgres v1.6.0 // indirect
 	gorm.io/gorm v1.31.2 // indirect
 )
+
+replace code.cloudfoundry.org/bbs => github.com/navinms711/bbs v0.0.0-20260702015513-0cc2dd51792e
+
+replace code.cloudfoundry.org/bbs/models => github.com/navinms711/bbs/models v0.0.0-20260702015513-0cc2dd51792e

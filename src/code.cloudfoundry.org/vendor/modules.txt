@@ -6,7 +6,7 @@ cel.dev/expr
 code.cloudfoundry.org/archiver/compressor
 code.cloudfoundry.org/archiver/extractor
 code.cloudfoundry.org/archiver/extractor/test_helper
-# code.cloudfoundry.org/bbs v1.11.0
+# code.cloudfoundry.org/bbs v1.11.0 => github.com/navinms711/bbs v0.0.0-20260702015513-0cc2dd51792e
 ## explicit; go 1.26.2
 code.cloudfoundry.org/bbs
 code.cloudfoundry.org/bbs/cmd/bbs
@@ -40,7 +40,7 @@ code.cloudfoundry.org/bbs/encryption
 # code.cloudfoundry.org/bbs/format v1.9.0
 ## explicit; go 1.26.2
 code.cloudfoundry.org/bbs/format
-# code.cloudfoundry.org/bbs/models v1.8.0
+# code.cloudfoundry.org/bbs/models v1.8.0 => github.com/navinms711/bbs/models v0.0.0-20260702015513-0cc2dd51792e
 ## explicit; go 1.26.2
 code.cloudfoundry.org/bbs/models
 code.cloudfoundry.org/bbs/models/test/model_helpers
@@ -1415,3 +1415,5 @@ gorm.io/gorm/utils
 # code.cloudfoundry.org/guardian => ../guardian
 # code.cloudfoundry.org/idmapper => ../idmapper
 # github.com/cactus/go-statsd-client => github.com/cactus/go-statsd-client v2.0.2-0.20150911070441-6fa055a7b594+incompatible
+# code.cloudfoundry.org/bbs => github.com/navinms711/bbs v0.0.0-20260702015513-0cc2dd51792e
+# code.cloudfoundry.org/bbs/models => github.com/navinms711/bbs/models v0.0.0-20260702015513-0cc2dd51792e
