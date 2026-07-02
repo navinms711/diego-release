@@ -2,6 +2,7 @@ package auctioncellrep_test
 
 import (
 	"errors"
+	"time"
 
 	"code.cloudfoundry.org/bbs/models"
 	"code.cloudfoundry.org/executor"
@@ -534,6 +535,16 @@ var _ = Describe("AuctionCellRep", func() {
 				Expect(healthy).To(BeTrue())
 				Expect(state.OptionalPlacementTags).To(ConsistOf(optionalPlacementTags))
 			})
+		})
+
+		It("reports the rep's start time, used by the auctioneer for freshness scoring", func() {
+			before := time.Now()
+			state, healthy, err := cellRep.State(logger)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(healthy).To(BeTrue())
+			Expect(state.StartTime).NotTo(BeZero())
+			Expect(state.StartTime).To(BeTemporally("<=", before))
+			Expect(state.StartTime).To(BeTemporally(">", before.Add(-time.Minute)))
 		})
 	})
 

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/url"
 	"sort"
+	"time"
 
 	"code.cloudfoundry.org/bbs/models"
 	"code.cloudfoundry.org/executor"
@@ -41,6 +42,7 @@ type AuctionCellRep struct {
 	enableContainerProxy     bool
 	proxyMemoryAllocation    int
 	allocator                BatchContainerAllocator
+	startTime                time.Time
 }
 
 func New(
@@ -74,6 +76,7 @@ func New(
 		enableContainerProxy:     enableContainerProxy,
 		proxyMemoryAllocation:    proxyMemoryAllocation,
 		allocator:                allocator,
+		startTime:                time.Now(),
 	}
 }
 
@@ -236,6 +239,7 @@ func (a *AuctionCellRep) State(logger lager.Logger) (models.CellState, bool, err
 		a.optionalPlacementTags,
 		allocatedProxyMemory,
 	)
+	state.StartTime = a.startTime
 
 	healthy := a.client.Healthy(logger)
 	if !healthy {
