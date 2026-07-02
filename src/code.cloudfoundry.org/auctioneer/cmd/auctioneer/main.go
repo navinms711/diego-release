@@ -185,6 +185,8 @@ func initializeAuctionRunner(logger lager.Logger, cfg config.AuctioneerConfig, b
 		cfg.BinPackFirstFitWeight,
 		cfg.StartingContainerWeight,
 		cfg.StartingContainerCountMaximum,
+		cfg.FreshLRPsPerCell,
+		cfg.FreshnessWeight,
 	)
 }
 

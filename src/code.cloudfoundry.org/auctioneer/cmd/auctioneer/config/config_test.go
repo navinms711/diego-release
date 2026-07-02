@@ -31,6 +31,8 @@ var _ = Describe("AuctioneerConfig", func() {
 			"bin_pack_first_fit_weight": 0.1,
 			"cell_state_timeout": "2s",
 			"communication_timeout": "15s",
+			"fresh_lrps_per_cell": 5,
+			"freshness_weight": 50.0,
 			"debug_address": "127.0.0.1:17017",
 			"listen_address": "0.0.0.0:9090",
 			"lock_retry_interval": "1m",
@@ -102,6 +104,8 @@ var _ = Describe("AuctioneerConfig", func() {
 				LocketClientKeyFile:  "locket-client-key",
 			},
 			CommunicationTimeout: durationjson.Duration(15 * time.Second),
+			FreshLRPsPerCell:     5,
+			FreshnessWeight:      50.0,
 			DebugServerConfig: debugserver.DebugServerConfig{
 				DebugAddress: "127.0.0.1:17017",
 			},
