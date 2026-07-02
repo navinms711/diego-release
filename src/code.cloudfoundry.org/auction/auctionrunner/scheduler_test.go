@@ -1150,6 +1150,107 @@ var _ = Describe("Scheduler", func() {
 	})
 })
 
+var _ = Describe("Scheduler freshness", func() {
+	// staleCell has better raw resources (fully empty) than freshCell, and no
+	// StartTime, so it always wins on resource score alone when freshness is
+	// not in play. freshCell has some memory already used (worse resource
+	// score) but a recent StartTime, so it can only win when the freshness
+	// bonus is large enough to offset its resource disadvantage.
+	var (
+		clients            map[string]*repfakes.FakeSimClient
+		zones              map[string]auctionrunner.Zone
+		clock              *fakeclock.FakeClock
+		workPool           *workpool.WorkPool
+		logger             *lagertest.TestLogger
+		freshCellStartTime time.Time
+	)
+
+	newZones := func() map[string]auctionrunner.Zone {
+		staleState := BuildCellState("stale-cell", 0, "zone", 100, 100, 100, false, 0, linuxOnlyRootFSProviders, nil, []string{}, []string{}, []string{}, 0)
+
+		freshState := BuildCellState("fresh-cell", 0, "zone", 100, 100, 100, false, 0, linuxOnlyRootFSProviders, []models.SchedulingLRP{
+			*BuildLRP("existing", "domain", 0, "", 40, 0, 0, []string{}),
+		}, []string{}, []string{}, []string{}, 0)
+		freshState.StartTime = freshCellStartTime
+
+		clients["stale-cell"] = &repfakes.FakeSimClient{}
+		clients["fresh-cell"] = &repfakes.FakeSimClient{}
+
+		return map[string]auctionrunner.Zone{
+			"zone": {
+				auctionrunner.NewCell(logger, "stale-cell", clients["stale-cell"], staleState),
+				auctionrunner.NewCell(logger, "fresh-cell", clients["fresh-cell"], freshState),
+			},
+		}
+	}
+
+	BeforeEach(func() {
+		clock = fakeclock.NewFakeClock(time.Now())
+		freshCellStartTime = clock.Now()
+
+		var err error
+		workPool, err = workpool.NewWorkPool(5)
+		Expect(err).NotTo(HaveOccurred())
+
+		clients = map[string]*repfakes.FakeSimClient{}
+		logger = lagertest.NewTestLogger("fakelogger")
+		zones = newZones()
+	})
+
+	AfterEach(func() {
+		workPool.Stop()
+	})
+
+	It("does not apply the bonus when no cells are evacuating, even if a cell is recently started", func() {
+		scheduler := auctionrunner.NewScheduler(workPool, zones, clock, logger, 0.0, 0.0, 0, 0, 50.0, 0)
+		auction := BuildLRPAuction("pg-1", "domain", 0, linuxRootFSURL, 5, 0, 0, clock.Now(), nil, []string{})
+
+		results := scheduler.Schedule(auctiontypes.AuctionRequest{LRPs: []auctiontypes.LRPAuction{auction}})
+
+		Expect(results.SuccessfulLRPs).To(HaveLen(1))
+		Expect(results.SuccessfulLRPs[0].Winner).To(Equal("stale-cell"))
+	})
+
+	It("prefers the recently-started cell over one with better raw resources when cells are evacuating", func() {
+		scheduler := auctionrunner.NewScheduler(workPool, zones, clock, logger, 0.0, 0.0, 0, 0, 50.0, 1)
+		auction := BuildLRPAuction("pg-1", "domain", 0, linuxRootFSURL, 5, 0, 0, clock.Now(), nil, []string{})
+
+		results := scheduler.Schedule(auctiontypes.AuctionRequest{LRPs: []auctiontypes.LRPAuction{auction}})
+
+		Expect(results.SuccessfulLRPs).To(HaveLen(1))
+		Expect(results.SuccessfulLRPs[0].Winner).To(Equal("fresh-cell"))
+	})
+
+	It("caps freshness placements at fresh_lrps_per_cell, reverting to normal scoring once exhausted", func() {
+		scheduler := auctionrunner.NewScheduler(workPool, zones, clock, logger, 0.0, 0.0, 0, 1, 50.0, 1)
+		firstAuction := BuildLRPAuction("pg-1", "domain", 0, linuxRootFSURL, 5, 0, 0, clock.Now(), nil, []string{})
+		secondAuction := BuildLRPAuction("pg-2", "domain", 0, linuxRootFSURL, 5, 0, 0, clock.Now(), nil, []string{})
+
+		results := scheduler.Schedule(auctiontypes.AuctionRequest{LRPs: []auctiontypes.LRPAuction{firstAuction, secondAuction}})
+
+		Expect(results.SuccessfulLRPs).To(HaveLen(2))
+		winners := map[string]string{}
+		for _, lrp := range results.SuccessfulLRPs {
+			winners[lrp.Identifier()] = lrp.Winner
+		}
+		Expect(winners[firstAuction.Identifier()]).To(Equal("fresh-cell"))
+		Expect(winners[secondAuction.Identifier()]).To(Equal("stale-cell"))
+	})
+
+	It("keeps applying the bonus for every placement when fresh_lrps_per_cell is unlimited", func() {
+		scheduler := auctionrunner.NewScheduler(workPool, zones, clock, logger, 0.0, 0.0, 0, 0, 50.0, 1)
+		firstAuction := BuildLRPAuction("pg-1", "domain", 0, linuxRootFSURL, 5, 0, 0, clock.Now(), nil, []string{})
+		secondAuction := BuildLRPAuction("pg-2", "domain", 0, linuxRootFSURL, 5, 0, 0, clock.Now(), nil, []string{})
+
+		results := scheduler.Schedule(auctiontypes.AuctionRequest{LRPs: []auctiontypes.LRPAuction{firstAuction, secondAuction}})
+
+		Expect(results.SuccessfulLRPs).To(HaveLen(2))
+		for _, lrp := range results.SuccessfulLRPs {
+			Expect(lrp.Winner).To(Equal("fresh-cell"))
+		}
+	})
+})
+
 func setLRPWinner(cellName string, lrps ...*auctiontypes.LRPAuction) {
 	for _, l := range lrps {
 		l.Winner = cellName

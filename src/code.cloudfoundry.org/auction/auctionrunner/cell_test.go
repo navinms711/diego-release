@@ -59,6 +59,44 @@ var _ = Describe("Cell", func() {
 			Expect(emptyScore).To(BeNumerically("<", score))
 		})
 
+		Context("with freshness scoring", func() {
+			var instance *models.SchedulingLRP
+
+			BeforeEach(func() {
+				instance = BuildLRP("pg-fresh", "domain", 0, linuxRootFSURL, 10, 10, 10, []string{})
+			})
+
+			It("applies a negative bonus when the cell is fresh and the weight is positive", func() {
+				baseline, err := emptyCell.ScoreForLRP(instance, 0.0, 0.0, 0.0, false)
+				Expect(err).NotTo(HaveOccurred())
+
+				freshScore, err := emptyCell.ScoreForLRP(instance, 0.0, 0.0, 50.0, true)
+				Expect(err).NotTo(HaveOccurred())
+
+				Expect(freshScore).To(BeNumerically("~", baseline-50.0, 1e-9))
+			})
+
+			It("applies no bonus when the weight is zero, even if the cell is marked fresh", func() {
+				baseline, err := emptyCell.ScoreForLRP(instance, 0.0, 0.0, 0.0, false)
+				Expect(err).NotTo(HaveOccurred())
+
+				score, err := emptyCell.ScoreForLRP(instance, 0.0, 0.0, 0.0, true)
+				Expect(err).NotTo(HaveOccurred())
+
+				Expect(score).To(BeNumerically("~", baseline, 1e-9))
+			})
+
+			It("applies no bonus when the cell is not marked fresh, even if the weight is positive", func() {
+				baseline, err := emptyCell.ScoreForLRP(instance, 0.0, 0.0, 0.0, false)
+				Expect(err).NotTo(HaveOccurred())
+
+				score, err := emptyCell.ScoreForLRP(instance, 0.0, 0.0, 50.0, false)
+				Expect(err).NotTo(HaveOccurred())
+
+				Expect(score).To(BeNumerically("~", baseline, 1e-9))
+			})
+		})
+
 		Context("when the cell has proxies enabled", func() {
 			var (
 				proxiedCellMemory   int32
