@@ -1209,6 +1209,11 @@ var _ = Describe("Scheduler freshness", func() {
 
 		Expect(results.SuccessfulLRPs).To(HaveLen(1))
 		Expect(results.SuccessfulLRPs[0].Winner).To(Equal("stale-cell"))
+
+		By("not tracing anything, since freshness scoring never activated")
+		logText := string(logger.Buffer().Contents())
+		Expect(logText).NotTo(ContainSubstring("lrp-freshness-placement"))
+		Expect(logText).NotTo(ContainSubstring("freshness-scheduling-summary"))
 	})
 
 	It("prefers the recently-started cell over one with better raw resources when cells are evacuating", func() {
@@ -1219,6 +1224,11 @@ var _ = Describe("Scheduler freshness", func() {
 
 		Expect(results.SuccessfulLRPs).To(HaveLen(1))
 		Expect(results.SuccessfulLRPs[0].Winner).To(Equal("fresh-cell"))
+
+		By("tracing the redirect: actual winner fresh-cell, baseline (no-bonus) winner stale-cell")
+		logText := string(logger.Buffer().Contents())
+		Expect(logText).To(MatchRegexp(`"message":"fakelogger.lrp-freshness-placement".*"actual-winner-cell":"fresh-cell".*"baseline-winner-cell":"stale-cell".*"redirected-by-freshness":true`))
+		Expect(logText).To(MatchRegexp(`"message":"fakelogger.freshness-scheduling-summary".*"lrps-considered":1.*"lrps-redirected-by-freshness":1`))
 	})
 
 	It("caps freshness placements at fresh_lrps_per_cell, reverting to normal scoring once exhausted", func() {
@@ -1235,6 +1245,10 @@ var _ = Describe("Scheduler freshness", func() {
 		}
 		Expect(winners[firstAuction.Identifier()]).To(Equal("fresh-cell"))
 		Expect(winners[secondAuction.Identifier()]).To(Equal("stale-cell"))
+
+		By("tracing only one redirect: the second LRP lands on stale-cell on its own merits once the budget is spent")
+		logText := string(logger.Buffer().Contents())
+		Expect(logText).To(MatchRegexp(`"message":"fakelogger.freshness-scheduling-summary".*"lrps-considered":2.*"lrps-redirected-by-freshness":1`))
 	})
 
 	It("keeps applying the bonus for every placement when fresh_lrps_per_cell is unlimited", func() {
@@ -1248,6 +1262,10 @@ var _ = Describe("Scheduler freshness", func() {
 		for _, lrp := range results.SuccessfulLRPs {
 			Expect(lrp.Winner).To(Equal("fresh-cell"))
 		}
+
+		By("tracing both placements as redirected, since the bonus never runs out")
+		logText := string(logger.Buffer().Contents())
+		Expect(logText).To(MatchRegexp(`"message":"fakelogger.freshness-scheduling-summary".*"lrps-considered":2.*"lrps-redirected-by-freshness":2`))
 	})
 })
 

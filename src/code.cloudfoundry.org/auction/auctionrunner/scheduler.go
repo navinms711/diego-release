@@ -58,6 +58,8 @@ type Scheduler struct {
 	freshLRPsPerCell              int // <=0 means no limit on freshness bonus per cell
 	freshnessWeight               float64
 	freshCellBudget               map[string]int // remaining freshness bonus budget per cell GUID
+	freshnessTracedCount          int            // LRPs placed while freshness scoring was active this batch
+	freshnessRedirectedCount      int            // ...of those, how many landed on a different cell than they would have without the bonus
 }
 
 func NewScheduler(
@@ -275,6 +277,15 @@ func (s *Scheduler) Schedule(auctionRequest auctiontypes.AuctionRequest) auction
 		s.logger.Info("task-added-to-cell", lager.Data{"task-guid": successfulTask.Identifier(), "cell-guid": successfulTask.Winner})
 		results.SuccessfulTasks = append(results.SuccessfulTasks, *successfulTask)
 	}
+
+	if s.freshnessTracedCount > 0 {
+		s.logger.Info("freshness-scheduling-summary", lager.Data{
+			"fresh-cell-count":             len(s.freshCellBudget),
+			"lrps-considered":              s.freshnessTracedCount,
+			"lrps-redirected-by-freshness": s.freshnessRedirectedCount,
+		})
+	}
+
 	return s.markResults(results)
 }
 
@@ -362,6 +373,13 @@ func (s *Scheduler) scheduleLRPAuction(lrpAuction *auctiontypes.LRPAuction) (*au
 	var winnerCell *Cell
 	winnerScore := 1e20
 
+	// Tracks what the winner would have been with the freshness bonus removed
+	// from every cell's score, computed over exactly the same candidate cells
+	// (same zone-tiering) the real decision considers. Used only for the
+	// freshness placement trace below; has no effect on the actual outcome.
+	var baselineWinnerCell *Cell
+	baselineWinnerScore := 1e20
+
 	zones := accumulateZonesByInstances(s.zones, lrpAuction.ProcessGuid)
 
 	filteredZones, err := filterZones(zones, lrpAuction)
@@ -389,6 +407,15 @@ func (s *Scheduler) scheduleLRPAuction(lrpAuction *auctiontypes.LRPAuction) (*au
 			if score < winnerScore {
 				winnerScore = score
 				winnerCell = cell
+			}
+
+			appliedBonus := 0.0
+			if isFresh && s.freshnessWeight > 0 {
+				appliedBonus = -s.freshnessWeight
+			}
+			if baselineScore := score - appliedBonus; baselineScore < baselineWinnerScore {
+				baselineWinnerScore = baselineScore
+				baselineWinnerCell = cell
 			}
 		}
 
@@ -423,6 +450,32 @@ func (s *Scheduler) scheduleLRPAuction(lrpAuction *auctiontypes.LRPAuction) (*au
 	// subsequent LRPs to spread via normal resource-based scoring.
 	if _, ok := s.freshCellBudget[winnerCell.Guid]; ok {
 		s.freshCellBudget[winnerCell.Guid]--
+	}
+
+	// Freshness placement trace: only emitted while freshness scoring is
+	// active (i.e. cells are evacuating), so this adds no log volume during
+	// normal operation. Compares the actual winner against what the winner
+	// would have been with the bonus removed, so operators can measure how
+	// many LRPs were redirected to a fresher cell and where they would
+	// otherwise have landed, to quantify the effect on rebouncing and
+	// upgrade wall-clock time from a single run.
+	if len(s.freshCellBudget) > 0 {
+		s.freshnessTracedCount++
+		redirected := baselineWinnerCell != nil && baselineWinnerCell.Guid != winnerCell.Guid
+		baselineWinnerGuid := ""
+		if baselineWinnerCell != nil {
+			baselineWinnerGuid = baselineWinnerCell.Guid
+		}
+		if redirected {
+			s.freshnessRedirectedCount++
+		}
+		s.logger.Info("lrp-freshness-placement", lager.Data{
+			"lrp-guid":                lrpAuction.Identifier(),
+			"lrp-instance-guid":       lrpAuction.SchedulingLRP.InstanceGUID,
+			"actual-winner-cell":      winnerCell.Guid,
+			"baseline-winner-cell":    baselineWinnerGuid,
+			"redirected-by-freshness": redirected,
+		})
 	}
 
 	winningAuction := lrpAuction.Copy()
