@@ -1,5 +1,5 @@
 check process file_server
   with pidfile /var/vcap/sys/run/bpm/file_server/file_server.pid
-  start program "/var/vcap/jobs/bpm/bin/bpm start file_server"
+  start program "/var/vcap/jobs/bpm/bin/bpm start file_server" with timeout 120 seconds
   stop program "/var/vcap/jobs/bpm/bin/bpm stop file_server"
   group vcap

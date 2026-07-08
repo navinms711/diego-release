@@ -1,5 +1,5 @@
 check process bbs
   with pidfile /var/vcap/sys/run/bpm/bbs/bbs.pid
-  start program "/var/vcap/jobs/bpm/bin/bpm start bbs"
+  start program "/var/vcap/jobs/bpm/bin/bpm start bbs" with timeout 120 seconds
   stop program "/var/vcap/jobs/bpm/bin/bpm stop bbs"
   group vcap

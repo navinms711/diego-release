@@ -1,5 +1,5 @@
 check process auctioneer
   with pidfile /var/vcap/sys/run/bpm/auctioneer/auctioneer.pid
-  start program "/var/vcap/jobs/bpm/bin/bpm start auctioneer"
+  start program "/var/vcap/jobs/bpm/bin/bpm start auctioneer" with timeout 120 seconds
   stop program "/var/vcap/jobs/bpm/bin/bpm stop auctioneer"
   group vcap
