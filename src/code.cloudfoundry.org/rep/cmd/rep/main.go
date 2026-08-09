@@ -494,7 +494,17 @@ func verifyCertificate(serverCertFile string) error {
 }
 
 func isTransientSilkError(err error) bool {
-	return errors.Is(err, syscall.ECONNREFUSED) ||
+	if err == nil {
+		return false
+	}
+	// Direct connection errors: rep can't reach Garden or silk-daemon socket.
+	if errors.Is(err, syscall.ECONNREFUSED) ||
 		errors.Is(err, syscall.ENOENT) ||
-		errors.Is(err, syscall.ECONNRESET)
+		errors.Is(err, syscall.ECONNRESET) {
+		return true
+	}
+	// CNI plugin exit-status-1: Garden reached, but the external networker binary
+	// failed because silk-daemon's HTTP endpoint wasn't ready yet. This surfaces
+	// as a string error, not a syscall.Errno, so errors.Is won't catch it.
+	return strings.Contains(err.Error(), "external networker encountered an error running 'up' action")
 }

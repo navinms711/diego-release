@@ -20,6 +20,10 @@ var _ = Describe("isTransientSilkError", func() {
 		Entry("wrapped ECONNREFUSED", fmt.Errorf("dial failed: %w", syscall.ECONNREFUSED)),
 		Entry("wrapped ENOENT", fmt.Errorf("stat failed: %w", syscall.ENOENT)),
 		Entry("wrapped ECONNRESET", fmt.Errorf("read failed: %w", syscall.ECONNRESET)),
+		Entry("external networker 'up' exit status 1 – silk-daemon not yet ready",
+			errors.New("external networker encountered an error running 'up' action: exit status 1")),
+		Entry("external networker 'up' exit status 1 wrapped",
+			fmt.Errorf("garden error: %w", errors.New("external networker encountered an error running 'up' action: exit status 1"))),
 	)
 
 	DescribeTable("returns false for genuine (non-transient) errors",
