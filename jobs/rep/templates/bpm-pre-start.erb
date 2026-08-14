@@ -1,9 +1,18 @@
 #!/bin/bash -e
 
 bin_dir=/var/vcap/jobs/rep/bin
+pkg_dir=/var/vcap/packages/rep/bin
 
 $bin_dir/set-rep-kernel-params
 
 $bin_dir/setup_mounted_data_dirs
 
 $bin_dir/volume_mounted_files
+
+# Pre-warm the droplet cache from a same-AZ donor cell before the rep starts.
+# Runs in the background so pre-start completes immediately; the rep starts
+# with an empty cache and the heartbeat advertises hashes as files arrive.
+mkdir -p /var/vcap/sys/log/rep
+nohup $pkg_dir/download-droplets \
+  --config /var/vcap/jobs/rep/config/rep.json \
+  >> /var/vcap/sys/log/rep/droplet-download.log 2>&1 &

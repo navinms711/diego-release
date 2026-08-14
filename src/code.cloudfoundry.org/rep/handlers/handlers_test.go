@@ -21,7 +21,7 @@ var _ = Describe("New", func() {
 			fakeExecutorClient := new(executorfakes.FakeClient)
 			fakeEvacuatable := new(fake_evacuation_context.FakeEvacuatable)
 			fakeRequestMetrics := new(helpersfakes.FakeRequestMetrics)
-			test_handlers = handlers.New(fakeLocalRep, fakeMetricCollector, fakeExecutorClient, fakeEvacuatable, fakeRequestMetrics, logger, false)
+			test_handlers = handlers.New(fakeLocalRep, fakeMetricCollector, fakeExecutorClient, fakeEvacuatable, fakeRequestMetrics, logger, false, "")
 		})
 
 		It("has no secure routes", func() {
@@ -42,7 +42,7 @@ var _ = Describe("New", func() {
 			fakeExecutorClient := new(executorfakes.FakeClient)
 			fakeEvacuatable := new(fake_evacuation_context.FakeEvacuatable)
 			fakeRequestMetrics := new(helpersfakes.FakeRequestMetrics)
-			test_handlers = handlers.New(fakeLocalRep, fakeMetricCollector, fakeExecutorClient, fakeEvacuatable, fakeRequestMetrics, logger, true)
+			test_handlers = handlers.New(fakeLocalRep, fakeMetricCollector, fakeExecutorClient, fakeEvacuatable, fakeRequestMetrics, logger, true, "")
 		})
 
 		It("has all the secure routes", func() {

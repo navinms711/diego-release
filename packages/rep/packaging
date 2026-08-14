@@ -11,5 +11,6 @@ export GOBIN=${BOSH_INSTALL_TARGET}/bin
 pushd src/code.cloudfoundry.org
 go install code.cloudfoundry.org/rep/cmd/rep
 go install code.cloudfoundry.org/rep/cmd/gocurl
+go install code.cloudfoundry.org/rep/cmd/download-droplets
 popd
 

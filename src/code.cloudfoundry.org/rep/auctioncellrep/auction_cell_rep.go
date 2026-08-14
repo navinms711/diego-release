@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"os"
+	"path/filepath"
 	"sort"
 	"time"
 
@@ -43,6 +45,7 @@ type AuctionCellRep struct {
 	proxyMemoryAllocation    int
 	allocator                BatchContainerAllocator
 	startTime                time.Time
+	cachePath                string
 }
 
 func New(
@@ -60,6 +63,7 @@ func New(
 	proxyMemoryAllocation int,
 	enableContainerProxy bool,
 	allocator BatchContainerAllocator,
+	cachePath string,
 ) *AuctionCellRep {
 	return &AuctionCellRep{
 		cellID:                   cellID,
@@ -77,6 +81,7 @@ func New(
 		proxyMemoryAllocation:    proxyMemoryAllocation,
 		allocator:                allocator,
 		startTime:                time.Now(),
+		cachePath:                cachePath,
 	}
 }
 
@@ -240,6 +245,7 @@ func (a *AuctionCellRep) State(logger lager.Logger) (models.CellState, bool, err
 		allocatedProxyMemory,
 	)
 	state.StartTime = a.startTime
+	state.CachedDropletHashes = scanCachedDropletHashes(a.cachePath)
 
 	healthy := a.client.Healthy(logger)
 	if !healthy {
@@ -255,6 +261,164 @@ func (a *AuctionCellRep) State(logger lager.Logger) (models.CellState, bool, err
 	})
 
 	return state, healthy, nil
+}
+
+// cachedDropletFile records the on-disk name and metadata of one cache entry.
+type cachedDropletFile struct {
+	name    string
+	size    int64
+	modTime time.Time
+}
+
+// scanCachedDropletHashes returns the unique set of 32-char lowercase hex
+// cache-key prefixes found in dir. Each cached file is named
+// {md5hex}-{nanoseconds}-{seq}; the prefix is the MD5 of the original cache
+// key and is what the auctioneer uses to identify which droplets are on disk.
+//
+// As a side-effect it merges newly discovered files into saved_cache.json so
+// that cacheddownloader's RecoverState on the next rep restart keeps them
+// instead of wiping them (RecoverState deletes any file not listed there).
+func scanCachedDropletHashes(dir string) []string {
+	if dir == "" {
+		return nil
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	diskFiles := map[string]cachedDropletFile{}
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		if len(name) < 32 {
+			continue
+		}
+		prefix := name[:32]
+		if len(name) > 32 && name[32] != '-' {
+			continue
+		}
+		if !isLowercaseHex(prefix) {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		// Keep the most recently modified file per prefix (mirrors Python logic).
+		if existing, ok := diskFiles[prefix]; !ok || info.ModTime().After(existing.modTime) {
+			diskFiles[prefix] = cachedDropletFile{name: name, size: info.Size(), modTime: info.ModTime()}
+		}
+	}
+	if len(diskFiles) == 0 {
+		return nil
+	}
+	mergeSavedCacheJSON(dir, diskFiles)
+	hashes := make([]string, 0, len(diskFiles))
+	for h := range diskFiles {
+		hashes = append(hashes, h)
+	}
+	sort.Strings(hashes)
+	return hashes
+}
+
+// savedCacheJSON mirrors the json.Marshal(*FileCache) layout written by
+// cacheddownloader.SaveState so we can read and write saved_cache.json
+// without importing cacheddownloader.
+type savedCacheJSON struct {
+	CachedPath string                      `json:"CachedPath"`
+	Entries    map[string]*savedCacheEntry `json:"Entries"`
+	OldEntries map[string]*savedCacheEntry `json:"OldEntries"`
+	Seq        uint64                      `json:"Seq"`
+}
+
+type savedCacheEntry struct {
+	Size                  int64           `json:"Size"`
+	Access                time.Time       `json:"Access"`
+	CachingInfo           savedCachingInfo `json:"CachingInfo"`
+	FilePath              string          `json:"FilePath"`
+	ExpandedDirectoryPath string          `json:"ExpandedDirectoryPath"`
+}
+
+type savedCachingInfo struct {
+	ETag         string `json:"ETag"`
+	LastModified string `json:"LastModified"`
+}
+
+// mergeSavedCacheJSON updates saved_cache.json in dir to reflect the current
+// set of on-disk droplet files. It preserves any real ETag/Last-Modified
+// that cacheddownloader's own SaveState may have written for already-tracked
+// entries, drops stale entries whose files are gone, and synthesises
+// placeholder entries for newly discovered files. Written atomically via a
+// temp-file + rename so a concurrent SaveState() call cannot observe a
+// partial write.
+func mergeSavedCacheJSON(dir string, diskFiles map[string]cachedDropletFile) {
+	savedPath := filepath.Join(dir, "saved_cache.json")
+
+	// Load whatever SaveState() may have already written so real ETags survive.
+	existing := savedCacheJSON{
+		Entries:    map[string]*savedCacheEntry{},
+		OldEntries: map[string]*savedCacheEntry{},
+	}
+	if data, err := os.ReadFile(savedPath); err == nil {
+		_ = json.Unmarshal(data, &existing)
+		if existing.Entries == nil {
+			existing.Entries = map[string]*savedCacheEntry{}
+		}
+		if existing.OldEntries == nil {
+			existing.OldEntries = map[string]*savedCacheEntry{}
+		}
+	}
+
+	// Build set of full paths present on disk for staleness checks.
+	onDiskPaths := make(map[string]struct{}, len(diskFiles))
+	for _, f := range diskFiles {
+		onDiskPaths[filepath.Join(dir, f.name)] = struct{}{}
+	}
+
+	// Drop entries whose backing file is no longer on disk.
+	for key, entry := range existing.Entries {
+		if entry.FilePath != "" {
+			if _, ok := onDiskPaths[entry.FilePath]; !ok {
+				delete(existing.Entries, key)
+			}
+		}
+	}
+
+	// Synthesise placeholder entries for files not yet tracked.
+	for prefix, f := range diskFiles {
+		if _, tracked := existing.Entries[prefix]; tracked {
+			continue
+		}
+		existing.Entries[prefix] = &savedCacheEntry{
+			Size:     f.size,
+			Access:   f.modTime,
+			FilePath: filepath.Join(dir, f.name),
+		}
+	}
+
+	existing.CachedPath = dir
+
+	data, err := json.Marshal(&existing)
+	if err != nil {
+		return
+	}
+	tmpPath := savedPath + ".heartbeat-tmp"
+	if err := os.WriteFile(tmpPath, data, 0600); err != nil {
+		return
+	}
+	// #nosec G104 - best-effort; if rename fails the old file is untouched
+	_ = os.Rename(tmpPath, savedPath)
+}
+
+func isLowercaseHex(s string) bool {
+	for _, c := range s {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+			return false
+		}
+	}
+	return true
 }
 
 func (a *AuctionCellRep) Metrics(logger lager.Logger) (*rep.ContainerMetricsCollection, error) {

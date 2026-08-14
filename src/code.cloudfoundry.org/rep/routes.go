@@ -14,8 +14,9 @@ const (
 
 	SimResetRoute = "RESET"
 
-	PingRoute     = "Ping"
-	EvacuateRoute = "Evacuate"
+	PingRoute          = "Ping"
+	EvacuateRoute      = "Evacuate"
+	ServeDropletsRoute = "ServeDroplets"
 )
 
 func NewRoutes(networkAccessible bool) rata.Routes {
@@ -33,6 +34,7 @@ func NewRoutes(networkAccessible bool) rata.Routes {
 			rata.Route{Path: "/v1/tasks/:task_guid/cancel", Method: "POST", Name: CancelTaskRoute},
 
 			rata.Route{Path: "/sim/reset", Method: "POST", Name: SimResetRoute},
+			rata.Route{Path: "/serve_droplets", Method: "GET", Name: ServeDropletsRoute},
 		)
 	} else {
 		routes = append(routes,

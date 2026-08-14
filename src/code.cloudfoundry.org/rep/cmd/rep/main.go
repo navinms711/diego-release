@@ -196,6 +196,7 @@ func main() {
 		repConfig.ProxyMemoryAllocationMB,
 		repConfig.EnableContainerProxy,
 		batchContainerAllocator,
+		repConfig.ExecutorConfig.CachePath,
 	)
 
 	requestTypes := []string{
@@ -357,7 +358,7 @@ func initializeServer(
 	repConfig config.RepConfig,
 	networkAccessible bool,
 ) ifrit.Runner {
-	handlers := handlers.New(auctionCellRep, auctionCellRep, executorClient, evacuatable, requestMetrics, logger, networkAccessible)
+	handlers := handlers.New(auctionCellRep, auctionCellRep, executorClient, evacuatable, requestMetrics, logger, networkAccessible, repConfig.ExecutorConfig.CachePath)
 	routes := rep.NewRoutes(networkAccessible)
 	router, err := rata.NewRouter(routes, handlers)
 	if err != nil {

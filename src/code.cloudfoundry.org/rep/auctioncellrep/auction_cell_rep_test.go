@@ -74,6 +74,7 @@ var _ = Describe("AuctionCellRep", func() {
 			proxyMemoryAllocation,
 			enableContainerProxy,
 			fakeContainerAllocator,
+			"",
 		)
 	})
 

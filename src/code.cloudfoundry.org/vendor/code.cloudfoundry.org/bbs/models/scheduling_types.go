@@ -234,6 +234,12 @@ type CellState struct {
 	// just-upgraded) cells; zero value means the reporting rep predates this
 	// field or does not populate it.
 	StartTime time.Time `json:"start_time"`
+	// CachedDropletHashes contains the MD5 hex-encoded cache keys (32-char
+	// lowercase hex strings) of droplets currently on disk in this cell's
+	// download cache. The rep populates this by scanning its cache directory
+	// on every heartbeat so the auctioneer can prefer cells that already hold
+	// a given droplet's bits during rolling upgrades.
+	CachedDropletHashes []string `json:"cached_droplet_hashes,omitempty"`
 }
 
 func NewCellState(

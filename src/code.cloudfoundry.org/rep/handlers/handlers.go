@@ -20,6 +20,7 @@ func New(
 	requestMetrics helpers.RequestMetrics,
 	logger lager.Logger,
 	secure bool,
+	cachePath string,
 ) rata.Handlers {
 
 	handlers := rata.Handlers{}
@@ -31,6 +32,7 @@ func New(
 		updateLrpHandler := NewUpdateLRPInstanceHandler(executorClient, requestMetrics)
 		stopLrpHandler := NewStopLRPInstanceHandler(executorClient, requestMetrics)
 		cancelTaskHandler := newCancelTaskHandler(executorClient, requestMetrics)
+		serveDropletsHandler := newServeDropletsHandler(cachePath, requestMetrics)
 
 		handlers[rep.StateRoute] = logWrap(stateHandler.ServeHTTP, logger)
 		handlers[rep.ContainerMetricsRoute] = logWrap(containerMetricsHandler.ServeHTTP, logger)
@@ -41,6 +43,7 @@ func New(
 		handlers[rep.UpdateLRPInstanceRoute] = logWrap(updateLrpHandler.ServeHTTP, logger)
 		handlers[rep.UpdateLRPInstanceRoute_r0] = logWrap(updateLrpHandler.ServeHTTP, logger)
 		handlers[rep.CancelTaskRoute] = logWrap(cancelTaskHandler.ServeHTTP, logger)
+		handlers[rep.ServeDropletsRoute] = logWrap(serveDropletsHandler.ServeHTTP, logger)
 	} else {
 		pingHandler := newPingHandler(requestMetrics)
 		evacuationHandler := newEvacuationHandler(evacuatable, requestMetrics)
@@ -64,8 +67,8 @@ func NewLegacy(
 	requestMetrics helpers.RequestMetrics,
 	logger lager.Logger,
 ) rata.Handlers {
-	insecureHandlers := New(localCellClient, localMetricCollector, executorClient, evacuatable, requestMetrics, logger, false)
-	secureHandlers := New(localCellClient, localMetricCollector, executorClient, evacuatable, requestMetrics, logger, true)
+	insecureHandlers := New(localCellClient, localMetricCollector, executorClient, evacuatable, requestMetrics, logger, false, "")
+	secureHandlers := New(localCellClient, localMetricCollector, executorClient, evacuatable, requestMetrics, logger, true, "")
 	for name, handler := range secureHandlers {
 		insecureHandlers[name] = handler
 	}
