@@ -200,7 +200,7 @@ func main() {
 	)
 
 	requestTypes := []string{
-		"State", "ContainerMetrics", "Perform", "Reset", "UpdateLRPInstance", "StopLRPInstance", "CancelTask", // over https only
+		"State", "ContainerMetrics", "Perform", "Reset", "UpdateLRPInstance", "StopLRPInstance", "CancelTask", "ServeDroplets", // over https only
 	}
 	requestMetrics := helpers.NewRequestMetricsNotifier(logger, clock, metronClient, time.Duration(repConfig.ReportInterval), requestTypes)
 	httpServer := initializeServer(auctionCellRep, executorClient, evacuatable, requestMetrics, logger, repConfig, false)
