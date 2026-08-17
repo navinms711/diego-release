@@ -60,6 +60,8 @@ type Scheduler struct {
 	freshCellBudget               map[string]int // remaining freshness bonus budget per cell GUID
 	freshnessTracedCount          int            // LRPs placed while freshness scoring was active this batch
 	freshnessRedirectedCount      int            // ...of those, how many landed on a different cell than they would have without the bonus
+	cacheBonusHintCount           int            // LRPs where computeDropletCacheHints returned non-empty hints this batch
+	cacheBonusDivertCount         int            // ...of those, how many landed on a different cell than they would have without the cache bonus
 }
 
 func NewScheduler(
@@ -286,6 +288,13 @@ func (s *Scheduler) Schedule(auctionRequest auctiontypes.AuctionRequest) auction
 		})
 	}
 
+	if s.cacheBonusHintCount > 0 {
+		s.logger.Info("cache-bonus-scheduling-summary", lager.Data{
+			"lrps-with-cache-hints":  s.cacheBonusHintCount,
+			"lrps-diverted-by-cache": s.cacheBonusDivertCount,
+		})
+	}
+
 	return s.markResults(results)
 }
 
@@ -369,15 +378,26 @@ func NewCellResourceState(state models.CellState) CellResourceState {
 	}
 }
 
-// computeDropletCacheHints returns the union of CachedDropletHashes from all
-// cells in zones that currently run an LRP with the given processGuid. The
-// result is used by scheduleLRPAuction to identify candidate cells that likely
-// hold the same droplet/dependency bits pre-warmed on disk.
+// computeDropletCacheHints returns the discriminating subset of
+// CachedDropletHashes from cells that currently run an LRP with the given
+// processGuid. "Discriminating" means the hash is NOT present on every cell
+// in the cluster: hashes that every cell already has (CF stacks, universal
+// buildpacks) provide no placement signal because DropletCacheBonus returns
+// -1000 on the first match, making all cells score equally.  Filtering those
+// universal hashes out preserves only the hashes that at least one cell
+// lacks — the hashes that can actually cause the auctioneer to prefer one
+// cell over another.
 func computeDropletCacheHints(zones map[string]Zone, processGuid string) []string {
-	seen := map[string]struct{}{}
+	// First pass: collect hashes from cells running this processGuid, and
+	// count for each hash how many cells in the cluster have it.
+	runningHashes := map[string]struct{}{}
+	cellCount := 0
+	hashCellCount := map[string]int{}
+
 	for _, zone := range zones {
 		for _, cell := range zone {
 			state := cell.State()
+			cellCount++
 			runsProcess := false
 			for _, lrp := range state.LRPs {
 				if lrp.ProcessGuid == processGuid {
@@ -385,20 +405,26 @@ func computeDropletCacheHints(zones map[string]Zone, processGuid string) []strin
 					break
 				}
 			}
-			if !runsProcess {
-				continue
-			}
 			for _, h := range state.CachedDropletHashes {
-				seen[h] = struct{}{}
+				hashCellCount[h]++
+				if runsProcess {
+					runningHashes[h] = struct{}{}
+				}
 			}
 		}
 	}
-	if len(seen) == 0 {
+
+	if len(runningHashes) == 0 {
 		return nil
 	}
-	hints := make([]string, 0, len(seen))
-	for h := range seen {
-		hints = append(hints, h)
+
+	// Second pass: keep only hashes that are NOT on every cell. Hashes present
+	// on all cells cannot divert a placement — every candidate gets -1000.
+	hints := make([]string, 0, len(runningHashes))
+	for h := range runningHashes {
+		if hashCellCount[h] < cellCount {
+			hints = append(hints, h)
+		}
 	}
 	return hints
 }
@@ -413,6 +439,13 @@ func (s *Scheduler) scheduleLRPAuction(lrpAuction *auctiontypes.LRPAuction) (*au
 	// freshness placement trace below; has no effect on the actual outcome.
 	var baselineWinnerCell *Cell
 	baselineWinnerScore := 1e20
+
+	// Tracks what the winner would have been with the cache bonus removed, so
+	// the cache-bonus placement trace can report whether the bonus diverted the
+	// LRP to a different cell. Independent of the freshness baseline above.
+	var noCacheBonusWinnerCell *Cell
+	noCacheBonusWinnerScore := 1e20
+	anyCacheBonus := false
 
 	zones := accumulateZonesByInstances(s.zones, lrpAuction.ProcessGuid)
 
@@ -444,11 +477,22 @@ func (s *Scheduler) scheduleLRPAuction(lrpAuction *auctiontypes.LRPAuction) (*au
 				continue
 			}
 
-			score += cell.DropletCacheBonus(dropletCacheHints)
+			cacheBonus := cell.DropletCacheBonus(dropletCacheHints)
+			if cacheBonus != 0 {
+				anyCacheBonus = true
+			}
+			score += cacheBonus
 
 			if score < winnerScore {
 				winnerScore = score
 				winnerCell = cell
+			}
+
+			// Cache-bonus-free baseline: remove only the cache bonus so we can
+			// tell if the cache bonus was the deciding factor for this placement.
+			if noCacheScore := score - cacheBonus; noCacheScore < noCacheBonusWinnerScore {
+				noCacheBonusWinnerScore = noCacheScore
+				noCacheBonusWinnerCell = cell
 			}
 
 			appliedBonus := 0.0
@@ -492,6 +536,30 @@ func (s *Scheduler) scheduleLRPAuction(lrpAuction *auctiontypes.LRPAuction) (*au
 	// subsequent LRPs to spread via normal resource-based scoring.
 	if _, ok := s.freshCellBudget[winnerCell.Guid]; ok {
 		s.freshCellBudget[winnerCell.Guid]--
+	}
+
+	// Cache-bonus placement trace: emitted whenever the placed LRP's ProcessGuid
+	// has existing instances that advertise cached hashes, so operators can
+	// measure how often the cache bonus influenced a placement decision and
+	// correlate diverted placements with app-startup time savings.
+	if len(dropletCacheHints) > 0 {
+		s.cacheBonusHintCount++
+		noCacheBonusWinnerGuid := ""
+		if noCacheBonusWinnerCell != nil {
+			noCacheBonusWinnerGuid = noCacheBonusWinnerCell.Guid
+		}
+		diverted := anyCacheBonus && noCacheBonusWinnerCell != nil && noCacheBonusWinnerCell.Guid != winnerCell.Guid
+		if diverted {
+			s.cacheBonusDivertCount++
+		}
+		s.logger.Info("lrp-cache-bonus-placement", lager.Data{
+			"lrp-guid":                lrpAuction.Identifier(),
+			"lrp-instance-guid":       lrpAuction.SchedulingLRP.InstanceGUID,
+			"actual-winner-cell":      winnerCell.Guid,
+			"no-cache-winner-cell":    noCacheBonusWinnerGuid,
+			"cache-bonus-applied":     anyCacheBonus,
+			"diverted-by-cache-bonus": diverted,
+		})
 	}
 
 	// Freshness placement trace: only emitted while freshness scoring is

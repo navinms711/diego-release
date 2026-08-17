@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"code.cloudfoundry.org/bbs/models"
@@ -272,8 +273,10 @@ type cachedDropletFile struct {
 
 // scanCachedDropletHashes returns the unique set of 32-char lowercase hex
 // cache-key prefixes found in dir. Each cached file is named
-// {md5hex}-{nanoseconds}-{seq}; the prefix is the MD5 of the original cache
-// key and is what the auctioneer uses to identify which droplets are on disk.
+// {md5hex}-{nanoseconds}-{seq}; expanded (buildpack) droplets are stored as
+// {md5hex}-{nanoseconds}-{seq}.d directories. Both forms are included so the
+// auctioneer can identify which droplets are on disk regardless of storage
+// format.
 //
 // As a side-effect it merges newly discovered files into saved_cache.json so
 // that cacheddownloader's RecoverState on the next rep restart keeps them
@@ -288,10 +291,32 @@ func scanCachedDropletHashes(dir string) []string {
 	}
 	diskFiles := map[string]cachedDropletFile{}
 	for _, e := range entries {
+		name := e.Name()
 		if e.IsDir() {
+			// Include expanded droplet directories: <32hex>-<ts>-<n>.d
+			if !strings.HasSuffix(name, ".d") {
+				continue
+			}
+			base := strings.TrimSuffix(name, ".d")
+			if len(base) < 32 || !isLowercaseHex(base[:32]) {
+				continue
+			}
+			if len(base) > 32 && base[32] != '-' {
+				continue
+			}
+			prefix := base[:32]
+			info, err := e.Info()
+			if err != nil {
+				continue
+			}
+			if existing, ok := diskFiles[prefix]; !ok || info.ModTime().After(existing.modTime) {
+				diskFiles[prefix] = cachedDropletFile{name: name, size: info.Size(), modTime: info.ModTime()}
+			}
 			continue
 		}
-		name := e.Name()
+		if strings.HasSuffix(name, ".download-tmp") {
+			continue
+		}
 		if len(name) < 32 {
 			continue
 		}
@@ -306,7 +331,7 @@ func scanCachedDropletHashes(dir string) []string {
 		if err != nil {
 			continue
 		}
-		// Keep the most recently modified file per prefix (mirrors Python logic).
+		// Keep the most recently modified entry per prefix (mirrors Python logic).
 		if existing, ok := diskFiles[prefix]; !ok || info.ModTime().After(existing.modTime) {
 			diskFiles[prefix] = cachedDropletFile{name: name, size: info.Size(), modTime: info.ModTime()}
 		}
