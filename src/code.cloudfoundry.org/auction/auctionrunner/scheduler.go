@@ -369,6 +369,40 @@ func NewCellResourceState(state models.CellState) CellResourceState {
 	}
 }
 
+// computeDropletCacheHints returns the union of CachedDropletHashes from all
+// cells in zones that currently run an LRP with the given processGuid. The
+// result is used by scheduleLRPAuction to identify candidate cells that likely
+// hold the same droplet/dependency bits pre-warmed on disk.
+func computeDropletCacheHints(zones map[string]Zone, processGuid string) []string {
+	seen := map[string]struct{}{}
+	for _, zone := range zones {
+		for _, cell := range zone {
+			state := cell.State()
+			runsProcess := false
+			for _, lrp := range state.LRPs {
+				if lrp.ProcessGuid == processGuid {
+					runsProcess = true
+					break
+				}
+			}
+			if !runsProcess {
+				continue
+			}
+			for _, h := range state.CachedDropletHashes {
+				seen[h] = struct{}{}
+			}
+		}
+	}
+	if len(seen) == 0 {
+		return nil
+	}
+	hints := make([]string, 0, len(seen))
+	for h := range seen {
+		hints = append(hints, h)
+	}
+	return hints
+}
+
 func (s *Scheduler) scheduleLRPAuction(lrpAuction *auctiontypes.LRPAuction) (*auctiontypes.LRPAuction, error) {
 	var winnerCell *Cell
 	winnerScore := 1e20
@@ -381,6 +415,12 @@ func (s *Scheduler) scheduleLRPAuction(lrpAuction *auctiontypes.LRPAuction) (*au
 	baselineWinnerScore := 1e20
 
 	zones := accumulateZonesByInstances(s.zones, lrpAuction.ProcessGuid)
+
+	// Compute droplet-cache hints once per LRP placement: the union of
+	// CachedDropletHashes from all cells already running this ProcessGuid.
+	// Cells that were pre-warmed from a same-AZ donor will share these hashes
+	// and receive a scoring bonus via Cell.DropletCacheBonus.
+	dropletCacheHints := computeDropletCacheHints(s.zones, lrpAuction.ProcessGuid)
 
 	filteredZones, err := filterZones(zones, lrpAuction)
 	if err != nil {
@@ -403,6 +443,8 @@ func (s *Scheduler) scheduleLRPAuction(lrpAuction *auctiontypes.LRPAuction) (*au
 				removeNonApplicableProblems(problems, err)
 				continue
 			}
+
+			score += cell.DropletCacheBonus(dropletCacheHints)
 
 			if score < winnerScore {
 				winnerScore = score

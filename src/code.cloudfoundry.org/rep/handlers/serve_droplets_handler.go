@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"code.cloudfoundry.org/lager/v3"
@@ -56,6 +57,11 @@ func (h *serveDroplets) ServeHTTP(w http.ResponseWriter, r *http.Request, logger
 			continue
 		}
 		name := entry.Name()
+		// Skip the cache index (recipient must build its own) and any partial
+		// download temporaries — neither is usable by a different cell.
+		if name == "saved_cache.json" || strings.HasSuffix(name, ".download-tmp") {
+			continue
+		}
 		fullPath := filepath.Join(h.cachePath, name)
 
 		info, err := entry.Info()

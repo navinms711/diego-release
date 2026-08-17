@@ -12,7 +12,9 @@ $bin_dir/volume_mounted_files
 # Pre-warm the droplet cache from a same-AZ donor cell before the rep starts.
 # Runs in the background so pre-start completes immediately; the rep starts
 # with an empty cache and the heartbeat advertises hashes as files arrive.
+# Must run as vcap so the written cache files are owned by the same user that
+# the rep process runs as (vcap); root-owned 0600 files are unreadable by rep.
 mkdir -p /var/vcap/sys/log/rep
-nohup $pkg_dir/download-droplets \
-  --config /var/vcap/jobs/rep/config/rep.json \
+nohup su -s /bin/bash vcap -c \
+  "$pkg_dir/download-droplets --config /var/vcap/jobs/rep/config/rep.json" \
   >> /var/vcap/sys/log/rep/droplet-download.log 2>&1 &

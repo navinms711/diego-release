@@ -7,6 +7,13 @@ import (
 
 const LocalityOffset = 1000
 
+// DropletCacheOffset is the score bonus (applied as a negative offset) given
+// to a cell that has pre-warmed copies of the LRP's cached dependencies. The
+// value is calibrated to prefer pre-warmed cells over non-pre-warmed cells
+// with similar resource availability, while remaining below the freshness
+// bonus so that freshness still takes priority during rolling upgrades.
+const DropletCacheOffset = 1000
+
 type Cell struct {
 	logger lager.Logger
 	Guid   string
@@ -96,6 +103,28 @@ func (c *Cell) ScoreForLRP(lrp *models.SchedulingLRP, startingContainerWeight, b
 		"score":           score,
 	})
 	return score, nil
+}
+
+// DropletCacheBonus returns a negative score offset (i.e. a bonus) when this
+// cell holds at least one entry from hints in its CachedDropletHashes. hints
+// is the union of CachedDropletHashes from all cells currently running the
+// same ProcessGuid, computed by the scheduler; an empty hints slice produces
+// no bonus. The one-time fixed bonus avoids unbounded advantages when many
+// hashes match.
+func (c *Cell) DropletCacheBonus(hints []string) float64 {
+	if len(hints) == 0 || len(c.state.CachedDropletHashes) == 0 {
+		return 0
+	}
+	cached := make(map[string]struct{}, len(c.state.CachedDropletHashes))
+	for _, h := range c.state.CachedDropletHashes {
+		cached[h] = struct{}{}
+	}
+	for _, hint := range hints {
+		if _, ok := cached[hint]; ok {
+			return -DropletCacheOffset
+		}
+	}
+	return 0
 }
 
 func (c *Cell) ScoreForTask(task *models.SchedulingTask, startingContainerWeight float64) (float64, error) {
