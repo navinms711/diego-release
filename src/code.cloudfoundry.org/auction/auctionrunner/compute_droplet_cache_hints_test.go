@@ -50,7 +50,7 @@ func TestComputeDropletCacheHintsFiltersUniversalHashes(t *testing.T) {
 		},
 	}
 
-	hints := computeDropletCacheHints(zones, "proc-1")
+	hints := computeDropletCacheHints(zones, nil, "proc-1")
 
 	// universalHash must be filtered out (all 4 cells have it — no divert signal)
 	// uniqueHash must be retained (only cell-A has it)
@@ -68,7 +68,7 @@ func TestComputeDropletCacheHintsNoRunningInstances(t *testing.T) {
 		},
 	}
 
-	hints := computeDropletCacheHints(zones, "proc-unknown")
+	hints := computeDropletCacheHints(zones, nil, "proc-unknown")
 	if hints != nil {
 		t.Errorf("expected nil, got %v", hints)
 	}
@@ -88,9 +88,43 @@ func TestComputeDropletCacheHintsAllHashesUniversal(t *testing.T) {
 		},
 	}
 
-	hints := computeDropletCacheHints(zones, "proc-1")
+	hints := computeDropletCacheHints(zones, nil, "proc-1")
 	if len(hints) != 0 {
 		t.Errorf("expected no hints (all universal), got %v", hints)
+	}
+}
+
+// TestComputeDropletCacheHintsEvacuatingCell verifies that a single-instance
+// app whose only instance is on the evacuating cell still yields hints, so
+// the cache bonus can fire during a BOSH drain (the BOSH upgrade use-case).
+func TestComputeDropletCacheHintsEvacuatingCell(t *testing.T) {
+	dropletHash := "9deec318c5cb101344d782908969e4f7"
+
+	// The only active cells: one pre-seeded neighbor has the hash; the rest don't.
+	zones := map[string]Zone{
+		"zone-a": {
+			makeTestCell("cell-neighbor", []string{}, []string{dropletHash}),
+		},
+		"zone-b": {
+			makeTestCell("cell-other-1", []string{}, []string{}),
+			makeTestCell("cell-other-2", []string{}, []string{}),
+		},
+	}
+
+	// The evacuating cell is the sole runner of proc-1 and has its droplet cached.
+	evacuatingStates := []models.CellState{
+		{
+			LRPs:                makeTestCell("cell-evac", []string{"proc-1"}, []string{dropletHash}).state.LRPs,
+			CachedDropletHashes: []string{dropletHash},
+		},
+	}
+
+	hints := computeDropletCacheHints(zones, evacuatingStates, "proc-1")
+
+	// dropletHash must be returned: the evacuating cell runs proc-1 and has the
+	// hash, the neighbor also has it (1 of 3 active cells) → non-universal.
+	if len(hints) != 1 || hints[0] != dropletHash {
+		t.Errorf("expected hints=[%s], got %v", dropletHash, hints)
 	}
 }
 
@@ -109,7 +143,7 @@ func TestComputeDropletCacheHintsMultipleRunningCells(t *testing.T) {
 		},
 	}
 
-	hints := sortedStrings(computeDropletCacheHints(zones, "proc-1"))
+	hints := sortedStrings(computeDropletCacheHints(zones, nil, "proc-1"))
 	expected := sortedStrings([]string{uniqueToA, uniqueToB})
 
 	if len(hints) != len(expected) {

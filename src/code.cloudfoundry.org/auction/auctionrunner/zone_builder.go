@@ -13,11 +13,12 @@ import (
 
 const MinBinPackFirstFitWeight = 0.0
 
-func FetchStateAndBuildZones(logger lager.Logger, workPool *workpool.WorkPool, clients map[string]models.RepClient, metricEmitter auctiontypes.AuctionMetricEmitterDelegate, binPackFirstFitWeight float64) (map[string]Zone, int) {
+func FetchStateAndBuildZones(logger lager.Logger, workPool *workpool.WorkPool, clients map[string]models.RepClient, metricEmitter auctiontypes.AuctionMetricEmitterDelegate, binPackFirstFitWeight float64) (map[string]Zone, []models.CellState, int) {
 	var zones map[string]Zone
+	var evacuatingCellStates []models.CellState
 	var evacuatingCount int
 	for i := 0; ; i++ {
-		zones, evacuatingCount = fetchStateAndBuildZones(logger, workPool, clients, metricEmitter, binPackFirstFitWeight)
+		zones, evacuatingCellStates, evacuatingCount = fetchStateAndBuildZones(logger, workPool, clients, metricEmitter, binPackFirstFitWeight)
 		if len(zones) > 0 {
 			break
 		}
@@ -27,14 +28,15 @@ func FetchStateAndBuildZones(logger lager.Logger, workPool *workpool.WorkPool, c
 		}
 		logger.Info("failed-to-communicate-to-cells-retry")
 	}
-	return zones, evacuatingCount
+	return zones, evacuatingCellStates, evacuatingCount
 }
 
-func fetchStateAndBuildZones(logger lager.Logger, workPool *workpool.WorkPool, clients map[string]models.RepClient, metricEmitter auctiontypes.AuctionMetricEmitterDelegate, binPackFirstFitWeight float64) (map[string]Zone, int) {
+func fetchStateAndBuildZones(logger lager.Logger, workPool *workpool.WorkPool, clients map[string]models.RepClient, metricEmitter auctiontypes.AuctionMetricEmitterDelegate, binPackFirstFitWeight float64) (map[string]Zone, []models.CellState, int) {
 	wg := &sync.WaitGroup{}
 	zones := map[string]Zone{}
 	lock := &sync.Mutex{}
 	evacuatingCount := 0
+	evacuatingCellStates := make([]models.CellState, 0)
 
 	wg.Add(len(clients))
 	for guid, client := range clients {
@@ -56,6 +58,7 @@ func fetchStateAndBuildZones(logger lager.Logger, workPool *workpool.WorkPool, c
 			if state.Evacuating {
 				lock.Lock()
 				evacuatingCount++
+				evacuatingCellStates = append(evacuatingCellStates, state)
 				lock.Unlock()
 				logger.Info("ignored-evacuating-cell", lager.Data{"cell-guid": guid, "duration_ns": time.Since(startTime)})
 				return
@@ -78,10 +81,10 @@ func fetchStateAndBuildZones(logger lager.Logger, workPool *workpool.WorkPool, c
 	wg.Wait()
 
 	if isBinPackFirstFitWeightProvided(binPackFirstFitWeight) {
-		return normaliseCellIndices(zones), evacuatingCount
+		return normaliseCellIndices(zones), evacuatingCellStates, evacuatingCount
 	}
 
-	return zones, evacuatingCount
+	return zones, evacuatingCellStates, evacuatingCount
 }
 
 func isBinPackFirstFitWeightProvided(binPackFirstFitWeight float64) bool {

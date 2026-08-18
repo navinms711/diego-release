@@ -50,6 +50,7 @@ func (z Zone) Less(i, j int) bool {
 type Scheduler struct {
 	workPool                      *workpool.WorkPool
 	zones                         map[string]Zone
+	evacuatingCellStates          []models.CellState
 	clock                         clock.Clock
 	logger                        lager.Logger
 	binPackFirstFitWeight         float64
@@ -75,6 +76,7 @@ func NewScheduler(
 	freshLRPsPerCell int,
 	freshnessWeight float64,
 	evacuatingCount int,
+	evacuatingCellStates []models.CellState,
 ) *Scheduler {
 	// Compute the set of "fresh" cells: the top N most recently started cells,
 	// where N = evacuatingCount. Each fresh cell gets a limited freshness budget
@@ -86,6 +88,7 @@ func NewScheduler(
 	return &Scheduler{
 		workPool:                      workPool,
 		zones:                         zones,
+		evacuatingCellStates:          evacuatingCellStates,
 		clock:                         clock,
 		logger:                        logger,
 		binPackFirstFitWeight:         binPackFirstFitWeight,
@@ -387,7 +390,12 @@ func NewCellResourceState(state models.CellState) CellResourceState {
 // universal hashes out preserves only the hashes that at least one cell
 // lacks — the hashes that can actually cause the auctioneer to prefer one
 // cell over another.
-func computeDropletCacheHints(zones map[string]Zone, processGuid string) []string {
+//
+// evacuatingCellStates contains the states of cells that are currently
+// evacuating (excluded from placement). These are consulted solely to detect
+// which droplet hashes belong to the LRP being evacuated, enabling the cache
+// bonus to fire for single-instance apps during BOSH drain.
+func computeDropletCacheHints(zones map[string]Zone, evacuatingCellStates []models.CellState, processGuid string) []string {
 	// First pass: collect hashes from cells running this processGuid, and
 	// count for each hash how many cells in the cluster have it.
 	runningHashes := map[string]struct{}{}
@@ -410,6 +418,21 @@ func computeDropletCacheHints(zones map[string]Zone, processGuid string) []strin
 				if runsProcess {
 					runningHashes[h] = struct{}{}
 				}
+			}
+		}
+	}
+
+	// Also check evacuating cells for the processGuid. Evacuating cells are
+	// excluded from placement but may be running the LRP being re-auctioned.
+	// Their hashes are added to runningHashes only — not to hashCellCount or
+	// cellCount — so the "non-universal" filter still reflects active cells.
+	for _, state := range evacuatingCellStates {
+		for _, lrp := range state.LRPs {
+			if lrp.ProcessGuid == processGuid {
+				for _, h := range state.CachedDropletHashes {
+					runningHashes[h] = struct{}{}
+				}
+				break
 			}
 		}
 	}
@@ -453,7 +476,7 @@ func (s *Scheduler) scheduleLRPAuction(lrpAuction *auctiontypes.LRPAuction) (*au
 	// CachedDropletHashes from all cells already running this ProcessGuid.
 	// Cells that were pre-warmed from a same-AZ donor will share these hashes
 	// and receive a scoring bonus via Cell.DropletCacheBonus.
-	dropletCacheHints := computeDropletCacheHints(s.zones, lrpAuction.ProcessGuid)
+	dropletCacheHints := computeDropletCacheHints(s.zones, s.evacuatingCellStates, lrpAuction.ProcessGuid)
 
 	filteredZones, err := filterZones(zones, lrpAuction)
 	if err != nil {
