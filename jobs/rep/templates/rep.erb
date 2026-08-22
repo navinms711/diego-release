@@ -22,5 +22,27 @@ set +e
 set -e
 <% end %>
 
+# loggregator-agent (gRPC ingress, port <%= p("loggregator.v2_api_port") %>) starts concurrently
+# with rep. If rep starts before the agent binds its port, the first log flush errors
+# and startup diagnostics are lost; there is no Go-level retry for this path.
+# Silk-daemon readiness is handled by the isTransientSilkError retry loop in main.go.
+# /dev/tcp is a bash built-in — no dependency on nc or netcat.
+_log_startup() { echo "$(date) [rep] $*"; }
+
+_log_startup "Polling loggregator-agent (port <%= p("loggregator.v2_api_port") %>)..."
+for _i in {1..60}; do
+  if (: >/dev/tcp/127.0.0.1/<%= p("loggregator.v2_api_port") %>) 2>/dev/null; then
+    _log_startup "Loggregator-agent UP after ${_i}s. Starting rep."
+    break
+  fi
+  if [ "$_i" -eq 60 ]; then
+    _log_startup "WARNING: loggregator-agent not ready after 60s, starting rep anyway."
+    break
+  fi
+  sleep 1
+done
+unset -f _log_startup
+unset _i
+
 exec /var/vcap/packages/rep/bin/rep \
       -config=$conf_dir/rep.json ${zone_flag}

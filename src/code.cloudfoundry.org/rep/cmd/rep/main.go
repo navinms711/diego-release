@@ -135,10 +135,13 @@ func main() {
 	preloadedRootFSesWithVersions := rep.StackPathMap(preloadedRootFSes).StackVersionList()
 	extraRootFSesWithVersions := extraRootFSes.StackVersionList()
 
-	// Silk-daemon needs ~60s to fully initialize for CNI operations. GetRootFSSizes
-	// (inside Initialize) creates a Garden container that triggers the silk CNI
-	// plugin's 'up' action; if silk-daemon is not yet ready this fails and would
-	// crash rep, causing a ~53s Monit restart cycle. Retry until silk is ready.
+	// Silk-daemon needs ~60s to fully initialize before it can serve CNI 'up' requests.
+	// executorinit.Initialize calls Garden to create a container, which triggers the
+	// external-networker 'up' action. When silk-daemon is not yet ready this fails via
+	// one of two paths — direct socket errors (ECONNREFUSED/ENOENT/ECONNRESET) or a
+	// string-wrapped external-networker exit-status-1 — see isTransientSilkError.
+	// Without the retry loop below, each failure caused rep to os.Exit(1) and Monit
+	// to restart it, creating a ~60s crash+restart cycle on every cell during upgrades.
 	executorClient, containerMetricsProvider, executorMembers, err := executorinit.Initialize(logger, repConfig.ExecutorConfig, repConfig.CellID, repConfig.Zone, rootFSMap, sidecarRootFSPath, metronClient, clock)
 	for attempt := 1; err != nil; attempt++ {
 		// Non-transient errors (e.g. bad config, permission denied) indicate a
@@ -494,6 +497,22 @@ func verifyCertificate(serverCertFile string) error {
 	return errors.New("invalid SAN metadata. certificate needs to contain 127.0.0.1 for IP SAN metadata.")
 }
 
+// isTransientSilkError reports whether err is a silk-daemon readiness race that
+// the caller should retry. Two distinct failure paths surface during Initialize:
+//
+//  1. Syscall errors (ECONNREFUSED / ENOENT / ECONNRESET): these surface when
+//     Garden's own socket is not yet accepting connections (early-start race), or
+//     when a socket-level error from the CNI call chain propagates back through Garden.
+//     errors.Is resolves these correctly even when wrapped.
+//
+//  2. CNI exit-status-1: Garden is reachable, but when Garden invokes the
+//     external-networker binary to bring up the container network ('up' action),
+//     that binary exits 1 because silk-daemon's HTTP endpoint is not yet ready.
+//     Garden wraps this as a plain string error:
+//       "external networker encountered an error running 'up' action: exit status 1"
+//     Because it is not a syscall.Errno, errors.Is cannot match it; only a substring
+//     check works. Without this case, rep called os.Exit(1) on the first CNI failure
+//     instead of entering the retry loop.
 func isTransientSilkError(err error) bool {
 	if err == nil {
 		return false
